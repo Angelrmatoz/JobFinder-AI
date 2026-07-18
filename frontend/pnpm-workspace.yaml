@@ -1,0 +1,14 @@
+packages:
+  - '.'
+
+# Desactivar la verificación de edad mínima de lanzamiento de pnpm (evita fallos de supply-chain falsos positivos)
+minimumReleaseAge: 0
+
+# Permitir que las siguientes dependencias de confianza ejecuten sus scripts de construcción (compilación de binarios)
+allowBuilds:
+  esbuild: true
+
+# Configurar pnpm para escribir archivos planos (estilo npm) y copiarlos físicamente
+# Esto evita fallos de enlaces simbólicos rotos en Docker cuando se desmonta la caché del store.
+nodeLinker: hoisted
+packageImportMethod: copy

@@ -32,3 +32,31 @@ JobFinder AI is a Full-Stack application designed to automate job searching:
 - [.github/workflows/ci.yml](file:///c:/Dev/Lead-Generation-AI/.github/workflows/ci.yml): Runs unit & E2E tests on push/PR.
 - [backend/](file:///c:/Dev/Lead-Generation-AI/backend/): FastAPI service, requirements, and pytest suite.
 - [frontend/](file:///c:/Dev/Lead-Generation-AI/frontend/): React UI, vitest configurations, and playwright tests.
+
+---
+
+## Docker Stack Guidelines
+
+You can run the entire stack together or manage services individually:
+
+- **Running Stack Jointly**:
+  - **Development**:
+    ```bash
+    docker compose -f docker-compose.dev.yml up --build
+    ```
+  - **Production**:
+    ```bash
+    docker compose up -d --build
+    ```
+
+- **Running Backend Individually**:
+  - Go to `backend/` and run:
+    - **Development**: `docker compose -f docker-compose.dev.yml up --build`
+    - **Production**: `docker compose up -d --build`
+
+- **Running Frontend Individually**:
+  - Go to `frontend/` and run:
+    - **Development**: `docker compose -f docker-compose.dev.yml up --build`
+    - **Production**: `docker compose up -d --build`
+
+- Ensure `backend/.env` is correctly populated before starting.

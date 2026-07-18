@@ -21,6 +21,12 @@ Welcome, agent! Read this document carefully before making changes to the React 
   - Script for dev: `pnpm run dev`
   - Script for unit tests: `pnpm test run`
   - Script for E2E tests: `pnpm test:e2e`
+- **pnpm-workspace.yaml**:
+  - `packages`: Must list `.` to be recognized as a valid workspace so configuration is loaded.
+  - `minimumReleaseAge: 0`: Disables pnpm 11's default 24-hour cooling-off security checks, preventing false-positive package age blocks.
+  - `allowBuilds`: Explicitly allows `esbuild` to run its installation build script. This is required by pnpm 11+ which blocks all build scripts by default and replaces the legacy `onlyBuiltDependencies` configuration.
+  - `nodeLinker: hoisted` and `packageImportMethod: copy`: Forces a flat/hoisted `node_modules` structure and physically copies packages instead of symlinking/hardlinking them. This prevents broken symlinks in Docker containers when BuildKit store cache is unmounted.
+- **Docker Caching**: We use a BuildKit cache mount (`--mount=type=cache,id=pnpm,target=/pnpm/store`) in the [Dockerfile](file:///c:/Dev/Lead-Generation-AI/frontend/Dockerfile) to persist the pnpm store across builds. This prevents redownloading packages when `package.json` changes.
 
 ### 2. jsdom layout restrictions (scrollIntoView)
 - The unit test environment uses **jsdom**, which does not feature a layout engine.
@@ -57,3 +63,16 @@ Welcome, agent! Read this document carefully before making changes to the React 
 ### 5. Component Modularization
 - Do not bloat `App.jsx`. Sub-components must reside in `src/components/` (e.g. `Badge.jsx`, `ChatPanel.jsx`, `ResultsPanel.jsx`).
 - Pass coordination callbacks or data states down from `App.jsx`.
+
+### 6. Dockerization & Dynamic API Path
+- The [Dockerfile](file:///c:/Dev/Lead-Generation-AI/frontend/Dockerfile) is multi-stage and supports targets `development` (runs Vite dev server on `5173`) and `production` (compiles and serves with **Nginx** on `80`).
+- Dedicated compose configurations are located inside the `frontend/` directory:
+  - **Development**: `docker compose -f docker-compose.dev.yml up --build`
+  - **Production**: `docker compose up -d --build`
+- In development, only source files and configurations are mounted (`src/`, `index.html`, `vite.config.js`) to allow hot-reloading while preventing local Windows node_modules symlinks from colliding with the Linux container node_modules.
+- Nginx proxies `/api/*` requests internally to the backend container.
+- To support this proxy, the `API` path in `App.jsx` is defined dynamically:
+  ```javascript
+  const API = import.meta.env.DEV ? "http://localhost:8000" : "";
+  ```
+  Keep the API endpoint path relative (`""`) in production so it targets the Nginx reverse-proxy correctly on any host.

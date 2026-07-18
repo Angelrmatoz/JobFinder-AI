@@ -6,4 +6,9 @@ export default defineConfig({
   css: {
     postcss: "./postcss.config.js",
   },
+  test: {
+    globals: true,
+    environment: "jsdom",
+    setupFiles: "./src/setupTests.js",
+  },
 });

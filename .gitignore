@@ -2,8 +2,6 @@
 .env
 .env.local
 .env.production
-.env.*
-*.env
 
 # ── Python ─────────────────────────────────────────
 __pycache__/
@@ -59,3 +57,4 @@ logs/
 *.tar.gz
 .temp/
 tmp/
+.codegraph

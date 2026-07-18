@@ -48,3 +48,11 @@ Welcome, agent! Read this document carefully before making changes to the Python
 - Do not run real integration tests in standard test cycles. They are marked with `@pytest.mark.integration` and skipped by default.
 - Run unit tests: `pytest`
 - Run integration tests: `pytest tests/test_integration_real.py --run-integration`
+
+### 5. Dockerization
+- The [Dockerfile](file:///c:/Dev/Lead-Generation-AI/backend/Dockerfile) is multi-stage and supports targets `development` (runs Uvicorn with `--reload`) and `production` (runs Uvicorn standard).
+- Dedicated compose configurations are located inside the `backend/` directory:
+  - **Development**: `docker compose -f docker-compose.dev.yml up --build`
+  - **Production**: `docker compose up -d --build`
+- In development, the local codebase is mounted to `/app` for hot-reloading.
+- The configuration reads `.env` variables from `backend/.env`. Ensure keys are populated.

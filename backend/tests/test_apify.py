@@ -9,7 +9,7 @@ async def test_scrape_linkedin_jobs_success():
     
     # Mock del actor call (async)
     mock_actor = MagicMock()
-    mock_actor.call = AsyncMock(return_value={"defaultDatasetId": "dataset_lnk"})
+    mock_actor.call = AsyncMock(return_value=MagicMock(default_dataset_id="dataset_lnk"))
     mock_client.actor.return_value = mock_actor
     
     # Mock del dataset list_items (async)
@@ -33,7 +33,7 @@ async def test_scrape_linkedin_jobs_success():
     assert result[0].company == "Globex"
     assert result[0].link == "https://linkedin.com/job/1"
     
-    mock_client.actor.assert_called_once_with("apify/linkedin-jobs-scraper")
+    mock_client.actor.assert_called_once_with("cheap_scraper/linkedin-job-scraper")
     mock_actor.call.assert_called_once()
 
 @pytest.mark.asyncio
@@ -43,7 +43,7 @@ async def test_scrape_google_jobs_success():
     
     # Mock actor call
     mock_actor = MagicMock()
-    mock_actor.call = AsyncMock(return_value={"defaultDatasetId": "dataset_ggl"})
+    mock_actor.call = AsyncMock(return_value=MagicMock(default_dataset_id="dataset_ggl"))
     mock_client.actor.return_value = mock_actor
     
     # Mock dataset list_items
@@ -67,7 +67,7 @@ async def test_scrape_google_jobs_success():
     assert result[0].company == "ACME"
     assert result[0].link == "https://google.com/job/2"
     
-    mock_client.actor.assert_called_once_with("apify/google-jobs-scraper")
+    mock_client.actor.assert_called_once_with("orgupdate/google-jobs-scraper")
     mock_actor.call.assert_called_once()
 
 @pytest.mark.asyncio
@@ -85,16 +85,13 @@ async def test_scrape_jobs_concurrently_success():
     ]
     
     with patch("src.services.apify_service.scrape_linkedin_jobs", return_value=mock_lnk_jobs) as mock_lnk:
-        with patch("src.services.apify_service.scrape_google_jobs", return_value=mock_ggl_jobs) as mock_ggl:
-            with patch.dict("os.environ", {"APIFY_TOKEN": "dummy_token"}):
-                result = await scrape_jobs_concurrently("test query", 5)
-                
-                # Deben quedar exactamente 3 vacantes únicas
-                assert len(result) == 3
-                links = [j.link for j in result]
-                assert "https://job1.com" in links
-                assert "https://job2.com" in links
-                assert "https://job3.com" in links
-                
-                mock_lnk.assert_called_once()
-                mock_ggl.assert_called_once()
+        with patch.dict("os.environ", {"APIFY_TOKEN": "dummy_token"}):
+            result = await scrape_jobs_concurrently("test query", 5)
+            
+            # Deben quedar exactamente 2 vacantes únicas porque Google Jobs se deshabilitó
+            assert len(result) == 2
+            links = [j.link for j in result]
+            assert "https://job1.com" in links
+            assert "https://job2.com" in links
+            
+            mock_lnk.assert_called_once()

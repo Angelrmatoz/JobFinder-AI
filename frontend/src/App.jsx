@@ -4,7 +4,7 @@ import LoadingPulse from "./components/LoadingPulse";
 import ResultsPanel from "./components/ResultsPanel";
 import ChatPanel from "./components/ChatPanel";
 
-const API = "http://localhost:8000";
+const API = import.meta.env.DEV ? "http://localhost:8000" : "";
 
 export default function App() {
   const [loading, setLoading] = useState(false);

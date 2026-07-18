@@ -39,8 +39,8 @@ async def upload_cv(file: UploadFile = File(...)):
         profile = parse_cv_with_gemma(cv_text)
         
         # 3. Scrapear ofertas usando la query generada
-        # Limitamos a 4 vacantes por plataforma para evitar sobrecostos y demoras de API
-        scraped_jobs = await scrape_jobs_concurrently(profile.search_query, limit=4)
+        # Limitamos a 15 vacantes para no saturar la API gratuita de Gemini
+        scraped_jobs = await scrape_jobs_concurrently(profile.search_query, limit=15)
         
         if not scraped_jobs:
             return CVProcessResponse(profile=profile, jobs=[])

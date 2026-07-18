@@ -74,7 +74,7 @@ def test_upload_cv_success(
     # Verificar que los métodos de los servicios fueron llamados
     mock_extract_pdf.assert_called_once()
     mock_parse_cv.assert_called_once_with("Texto extraído del CV")
-    mock_scrape_jobs.assert_called_once_with(mock_cv_profile.search_query, limit=4)
+    mock_scrape_jobs.assert_called_once_with(mock_cv_profile.search_query, limit=15)
     mock_eval_match.assert_called_once()
     mock_save_notion.assert_called_once()
 

@@ -68,7 +68,12 @@ def parse_cv_with_gemma(cv_text: str) -> CVProfile:
     
     # Fallback to manual parsing
     try:
-        data = json.loads(response.text)
+        text = response.text.strip()
+        start = text.find('{')
+        end = text.rfind('}')
+        if start != -1 and end != -1:
+            text = text[start:end+1]
+        data = json.loads(text)
         return CVProfile(**data)
     except Exception as e:
         raise ValueError(f"Failed to parse CV with Gemini: {str(e)}. Response was: {response.text}")
@@ -105,10 +110,15 @@ def evaluate_job_match(cv_profile: CVProfile, job_title: str, job_company: str, 
         return response.parsed
         
     try:
-        data = json.loads(response.text)
+        text = response.text.strip()
+        start = text.find('{')
+        end = text.rfind('}')
+        if start != -1 and end != -1:
+            text = text[start:end+1]
+        data = json.loads(text)
         return JobMatchResult(**data)
     except Exception as e:
-        raise ValueError(f"Failed to evaluate job match with Gemini: {str(e)}")
+        raise ValueError(f"Failed to evaluate job match with Gemini: {str(e)}. Response was: {response.text}")
 
 def generate_chat_response(prompt: str) -> str:
     """Generate advisor chat response using the model fallback chain."""

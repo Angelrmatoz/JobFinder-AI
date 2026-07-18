@@ -4,7 +4,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 from pydantic import BaseModel
 from src.schemas.cv import CVProfile, JobDetail, CVProcessResponse
 from src.services.pdf_service import extract_text_from_pdf
-from src.services.gemini_service import parse_cv_with_gemma, evaluate_job_match, get_client
+from src.services.gemini_service import parse_cv_with_gemma, evaluate_job_match, generate_chat_response
 from src.services.apify_service import scrape_jobs_concurrently
 from src.services.notion_service import save_job_to_notion
 
@@ -84,8 +84,6 @@ async def chat_with_jobs(req: ChatRequest):
     """
     Chat con el perfil y las vacantes encontradas usando Gemini.
     """
-    model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-    
     prompt = f"""
     Eres un asesor de carrera e inteligencia de reclutamiento.
     Se ha procesado el perfil de un candidato y se han obtenido las siguientes vacantes de trabajo:
@@ -101,11 +99,7 @@ async def chat_with_jobs(req: ChatRequest):
     """
     
     try:
-        client = get_client()
-        response = client.models.generate_content(
-            model=model_name,
-            contents=prompt,
-        )
-        return {"answer": response.text}
+        answer = await asyncio.to_thread(generate_chat_response, prompt)
+        return {"answer": answer}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error en chat: {str(e)}")

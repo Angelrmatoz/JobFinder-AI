@@ -78,14 +78,10 @@ def test_upload_cv_success(
     mock_eval_match.assert_called_once()
     mock_save_notion.assert_called_once()
 
-@patch("src.routers.jobs.get_client")
-def test_chat_endpoint_success(mock_get_client, client):
+@patch("src.routers.jobs.generate_chat_response")
+def test_chat_endpoint_success(mock_generate_chat, client):
     """Validar endpoint de chat de asesor de carrera con mocks."""
-    mock_gemini_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.text = "Respuesta del Asesor IA"
-    mock_gemini_client.models.generate_content.return_value = mock_response
-    mock_get_client.return_value = mock_gemini_client
+    mock_generate_chat.return_value = "Respuesta del Asesor IA"
     
     response = client.post(
         "/api/chat",
@@ -94,4 +90,4 @@ def test_chat_endpoint_success(mock_get_client, client):
     
     assert response.status_code == 200
     assert response.json()["answer"] == "Respuesta del Asesor IA"
-    mock_get_client.assert_called_once()
+    mock_generate_chat.assert_called_once()

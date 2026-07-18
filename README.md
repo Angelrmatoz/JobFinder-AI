@@ -16,6 +16,7 @@ JobFinder AI es una aplicación web Full-Stack diseñada para eliminar la búsqu
    - **Scraping (Apify)**: Llama concurrentemente en paralelo a los actores públicos **LinkedIn Jobs Scraper** y **Google Jobs Scraper** para consolidar vacantes.
    - **Filtro Cognitivo**: Evalúa la afinidad de cada vacante con el perfil del candidato, calcula un *Match Score* (1 a 10) y redacta un consejo para aplicar a cada vacante.
    - **Almacenamiento**: Las ofertas con un Match Score mayor a 7 se guardan automáticamente en una base de datos de **Notion** usando `notion-client`.
+   - **Resiliencia (Model Fallback)**: Implementa una cadena de reintentos automática (`gemma-4-31b-it` -> `gemma-4-26b-a4b-it` -> `gemini-3.1-flash-lite`) para asegurar la disponibilidad del servicio y mitigar límites de cuotas/RPM.
    - **Asesor de Carrera**: Permite chatear interactivamente sobre el perfil o las vacantes encontradas mediante un chat integrado.
 
 ---
@@ -107,22 +108,48 @@ cd Lead-Generation-AI
 
 ## Pruebas Automatizadas
 
-El proyecto incluye una suite completa de pruebas unitarias (con mocks) y de integración real.
+El proyecto incluye una suite completa de pruebas automatizadas para backend y frontend.
 
-**Ejecutar pruebas unitarias locales (rápidas, offline, 0 costo):**
-```bash
-cd backend
-..\.venv\Scripts\pytest -v
-```
+### 1. Backend (Pytest)
 
-**Ejecutar pruebas de integración con las APIs reales (Gemini y Notion):**
-```bash
-cd backend
-..\.venv\Scripts\pytest -v tests/test_integration_real.py --run-integration
-```
+Las pruebas del backend incluyen pruebas unitarias offline (con mocks) y de integración real.
+
+* **Ejecutar pruebas unitarias locales (rápidas, offline, 0 costo):**
+  ```bash
+  cd backend
+  ..\.venv\Scripts\pytest -v
+  ```
+* **Ejecutar pruebas de integración con las APIs reales (Gemini y Notion):**
+  ```bash
+  cd backend
+  ..\.venv\Scripts\pytest -v tests/test_integration_real.py --run-integration
+  ```
+
+### 2. Frontend (Vitest & Playwright)
+
+El frontend modular cuenta con pruebas unitarias, de integración y de extremo a extremo (E2E).
+
+* **Ejecutar pruebas unitarias e integración de componentes (Vitest):**
+  ```bash
+  cd frontend
+  pnpm test run
+  ```
+* **Ejecutar pruebas E2E en navegadores reales (Playwright):**
+  ```bash
+  cd frontend
+  # Instala los navegadores necesarios (la primera vez)
+  pnpm exec playwright install
+  # Corre las pruebas E2E
+  pnpm test:e2e
+  ```
 
 ---
 
-## Licencia
+## Integración Continua (CI/CD)
 
-MIT — libre de usar, modificar y construir sobre él.
+El proyecto cuenta con un flujo de **GitHub Actions** configurado en [.github/workflows/ci.yml](file:///.github/workflows/ci.yml). Este pipeline se ejecuta en cada *push* o *Pull Request* hacia las ramas `dev` y `main`, garantizando de forma automatizada que:
+1. El backend pase todas sus pruebas unitarias.
+2. El frontend pase todas las pruebas unitarias y de integración en Vitest.
+3. Se ejecuten las pruebas de Playwright de extremo a extremo en navegadores reales de forma segura e independiente sin costos de API (utilizando interceptores de red).
+
+---

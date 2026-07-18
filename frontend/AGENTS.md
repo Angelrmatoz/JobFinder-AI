@@ -50,6 +50,10 @@ Welcome, agent! Read this document carefully before making changes to the React 
   ```
 - Make sure to update the mock delay if adding other async steps.
 
-### 4. Component Modularization
+### 4. Vitest and Playwright File Collision
+- Since Playwright E2E tests (`src/e2e/**`) end in `.spec.js`, Vitest will attempt to run them as unit tests and fail (due to `@playwright/test` imports).
+- The `src/e2e/**` folder must be explicitly excluded in `vite.config.js` (`exclude: [...configDefaults.exclude, "src/e2e/**"]`).
+
+### 5. Component Modularization
 - Do not bloat `App.jsx`. Sub-components must reside in `src/components/` (e.g. `Badge.jsx`, `ChatPanel.jsx`, `ResultsPanel.jsx`).
 - Pass coordination callbacks or data states down from `App.jsx`.

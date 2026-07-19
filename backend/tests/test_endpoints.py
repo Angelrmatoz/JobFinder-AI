@@ -77,12 +77,13 @@ def test_upload_cv_success(
     mock_scrape_jobs.assert_called_once_with(
         query=mock_cv_profile.search_query,
         limit=15,
-        location_type="both",
+        location_type=None,
         date_posted="7d",
         target_location=None,
         workplace_types=None,
         resume_skills=mock_cv_profile.skills,
         target_roles=mock_cv_profile.target_roles,
+        job_language="both",
     )
     mock_eval_match.assert_called_once()
     mock_save_notion.assert_called_once()

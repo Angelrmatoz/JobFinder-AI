@@ -22,9 +22,8 @@ services:
     ports:
       - "5173:5173"
     volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/index.html:/app/index.html
-      - ./frontend/vite.config.js:/app/vite.config.js
+      - ./frontend:/app
+      - /app/node_modules
     depends_on:
       - backend
     restart: always

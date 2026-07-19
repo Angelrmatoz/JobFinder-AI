@@ -18,7 +18,7 @@ class ChatRequest(BaseModel):
 @router.post("/api/upload-cv", response_model=CVProcessResponse)
 async def upload_cv(
     file: UploadFile = File(...),
-    location_type: Optional[str] = Form(None),
+    location_scope: Optional[str] = Form(None),
     date_posted: Optional[str] = Form(None),
     manual_location: Optional[str] = Form(None),
     workplace_types: Optional[str] = Form(None),
@@ -36,7 +36,7 @@ async def upload_cv(
         raise HTTPException(status_code=400, detail="Solo se admiten archivos PDF.")
         
     try:
-        print(f"[JOBS_ROUTER] upload_cv: location_type={location_type}, date_posted={date_posted}, manual_location={manual_location}, workplace_types={workplace_types}, job_language={job_language}", flush=True)
+        print(f"[JOBS_ROUTER] upload_cv: location_scope={location_scope}, date_posted={date_posted}, manual_location={manual_location}, workplace_types={workplace_types}, job_language={job_language}", flush=True)
         # 1. Leer y extraer texto
         pdf_bytes = await file.read()
         cv_text = extract_text_from_pdf(pdf_bytes)
@@ -46,27 +46,37 @@ async def upload_cv(
             
         # 2. Interpretar CV con Gemini
         print("[JOBS_ROUTER] Parsing CV text with Gemini...", flush=True)
-        profile = await asyncio.to_thread(parse_cv_with_gemma, cv_text, manual_location)
+        active_manual_location = manual_location if location_scope == "manual" else None
+        profile = await asyncio.to_thread(parse_cv_with_gemma, cv_text, active_manual_location)
         print(f"[JOBS_ROUTER] Parsed CV profile: {profile}", flush=True)
         
         # Determine filters with defaults
         effective_date_posted = date_posted if date_posted else "7d"
-        effective_location_type = location_type or "both"
         effective_job_language = job_language or "both"
-        target_loc = profile.location # Gemini already incorporated manual_location and translated it
+        
+        # Set target location based on scope
+        if location_scope == "global":
+            target_loc = None
+        elif location_scope == "cv":
+            target_loc = profile.location
+        elif location_scope == "manual":
+            target_loc = profile.location if manual_location and manual_location.strip() else None
+        else:
+            target_loc = None
         
         # 3. Scrapear ofertas usando la query generada y filtros
         # Limitamos a 15 vacantes para no saturar la API gratuita de Gemini
-        print(f"[JOBS_ROUTER] Scraping jobs concurrently for query='{profile.search_query}' location_type='{effective_location_type}' location='{target_loc}' date_posted='{effective_date_posted}'...", flush=True)
+        print(f"[JOBS_ROUTER] Scraping jobs concurrently for query='{profile.search_query}' location_scope='{location_scope}' location='{target_loc}' date_posted='{effective_date_posted}'...", flush=True)
         scraped_jobs = await scrape_jobs_concurrently(
             query=profile.search_query,
             limit=15,
-            location_type=effective_location_type,
+            location_type=None,
             date_posted=effective_date_posted,
             target_location=target_loc,
             workplace_types=workplace_types,
             resume_skills=profile.skills,
             target_roles=profile.target_roles,
+            job_language=effective_job_language,
         )
         print(f"[JOBS_ROUTER] Scraped {len(scraped_jobs)} jobs. Commencing matching...", flush=True)
         

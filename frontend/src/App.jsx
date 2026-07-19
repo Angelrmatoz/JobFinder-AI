@@ -14,11 +14,11 @@ export default function App() {
   const [dragActive, setDragActive] = useState(false);
   
   const [showFilters, setShowFilters] = useState(false);
-  const [locationType, setLocationType] = useState("both");
+  const [locationScope, setLocationScope] = useState("global");
   const [manualLocation, setManualLocation] = useState("");
   const [datePosted, setDatePosted] = useState("7d");
   const [workplaceOnSite, setWorkplaceOnSite] = useState(false);
-  const [workplaceRemote, setWorkplaceRemote] = useState(false);
+  const [workplaceRemote, setWorkplaceRemote] = useState(true);
   const [workplaceHybrid, setWorkplaceHybrid] = useState(false);
   const [langSpanish, setLangSpanish] = useState(false);
   const [langEnglish, setLangEnglish] = useState(false);
@@ -113,7 +113,7 @@ export default function App() {
 
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("location_type", locationType);
+    formData.append("location_scope", locationScope);
     formData.append("date_posted", datePosted);
     
     // Determine job language to send
@@ -125,22 +125,22 @@ export default function App() {
     }
     formData.append("job_language", effectiveJobLang);
     
-    if (manualLocation.trim()) {
+    if (locationScope === "manual" && manualLocation.trim()) {
       formData.append("manual_location", manualLocation.trim());
     }
     const wt = [];
-    if (workplaceOnSite) wt.push("presencial");
-    if (workplaceRemote) wt.push("remoto");
-    if (workplaceHybrid) wt.push("hibrido");
+    if (locationScope === "global") {
+      wt.push("remoto");
+    } else {
+      if (workplaceOnSite) wt.push("presencial");
+      if (workplaceRemote) wt.push("remoto");
+      if (workplaceHybrid) wt.push("hibrido");
+    }
     if (wt.length > 0) {
       formData.append("workplace_types", wt.join(","));
     }
 
-    console.log("=== FRONTEND LOG: Datos enviados al Backend ===");
-    for (let [key, value] of formData.entries()) {
-      console.log(`[${key}]:`, value instanceof File ? `Archivo (${value.name}, ${value.size} bytes)` : value);
-    }
-    console.log("===============================================");
+
 
     const uploadUrl = `${API}/api/upload-cv`;
     console.info("[UPLOAD] POST", uploadUrl);
@@ -258,17 +258,26 @@ export default function App() {
                 
                 {showFilters && (
                   <div className="px-5 pb-5 pt-2 border-t border-slate-800/60 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                    {/* Location Type */}
+                    {/* Ámbito de Ubicación */}
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-slate-400 font-medium">Ubicación de Ofertas</label>
+                      <label htmlFor="location-scope-select" className="text-slate-400 font-medium">Filtro Geográfico (Ubicación)</label>
                       <select
-                        value={locationType}
-                        onChange={(e) => setLocationType(e.target.value)}
+                        id="location-scope-select"
+                        value={locationScope}
+                        onChange={(e) => {
+                          const scope = e.target.value;
+                          setLocationScope(scope);
+                          if (scope === "global") {
+                            setWorkplaceRemote(true);
+                            setWorkplaceOnSite(false);
+                            setWorkplaceHybrid(false);
+                          }
+                        }}
                         className="bg-[#0e0e1a] border border-slate-800 rounded-lg px-3 py-2 text-slate-300 focus:outline-none focus:border-violet-500 transition-colors"
                       >
-                        <option value="both">Cualquier modalidad disponible en mi país</option>
-                        <option value="local">Ofertas locales en mi país</option>
-                        <option value="remote">Solo remoto disponible en mi país</option>
+                        <option value="global">Todo el mundo (Global / Sin país)</option>
+                        <option value="cv">Usar ubicación de mi CV</option>
+                        <option value="manual">Especificar ubicación manualmente...</option>
                       </select>
                     </div>
 
@@ -327,30 +336,37 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Manual Location Override */}
-                    <div className="flex flex-col gap-1.5 sm:col-span-2">
-                      <label className="text-slate-400 font-medium flex items-center justify-between">
-                        <span>Ubicación Manual (Opcional)</span>
-                        <span className="text-[10px] text-slate-500">Ignora el CV si se especifica</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={manualLocation}
-                        onChange={(e) => setManualLocation(e.target.value)}
-                        placeholder="Ej. Madrid, España / Colombia / London, UK"
-                        className="bg-[#0e0e1a] border border-slate-800 rounded-lg px-3 py-2 text-slate-300 focus:outline-none focus:border-violet-500 transition-colors placeholder-slate-600"
-                      />
-                    </div>
+                    {/* Manual Location Override (Only shown if scope is manual) */}
+                    {locationScope === "manual" && (
+                      <div className="flex flex-col gap-1.5 sm:col-span-2">
+                        <label className="text-slate-400 font-medium">Ubicación Manual</label>
+                        <input
+                          type="text"
+                          value={manualLocation}
+                          onChange={(e) => setManualLocation(e.target.value)}
+                          placeholder="Ej. Madrid, España / Colombia / London, UK"
+                          className="bg-[#0e0e1a] border border-slate-800 rounded-lg px-3 py-2 text-slate-300 focus:outline-none focus:border-violet-500 transition-colors placeholder-slate-600 animate-fadeIn"
+                        />
+                      </div>
+                    )}
 
                     {/* Workplace Modalidad (Workplace Type badging/pills) */}
                     <div className="flex flex-col gap-1.5 sm:col-span-2">
-                      <label className="text-slate-400 font-medium">Modalidad de Trabajo (Múltiple)</label>
+                      <label className="text-slate-400 font-medium flex items-center justify-between">
+                        <span>Modalidad de Trabajo (Múltiple)</span>
+                        {locationScope === "global" && (
+                          <span className="text-[10px] text-violet-400/80 animate-pulse font-medium">Búsqueda global limitada a Remoto</span>
+                        )}
+                      </label>
                       <div className="flex gap-2.5 mt-1">
                         <button
                           type="button"
+                          disabled={locationScope === "global"}
                           onClick={() => setWorkplaceOnSite(!workplaceOnSite)}
                           className={`flex-1 py-2 px-3 rounded-lg border text-center font-medium transition-all ${
-                            workplaceOnSite
+                            locationScope === "global"
+                              ? "bg-[#0c0c16]/30 border-slate-900/40 text-slate-700 cursor-not-allowed"
+                              : workplaceOnSite
                               ? "bg-violet-500/10 border-violet-500 text-violet-300 shadow-[0_0_10px_rgba(139,92,246,0.1)]"
                               : "bg-[#0e0e1a] border-slate-800/60 text-slate-500 hover:text-slate-350 hover:border-slate-700"
                           }`}
@@ -359,9 +375,12 @@ export default function App() {
                         </button>
                         <button
                           type="button"
+                          disabled={locationScope === "global"}
                           onClick={() => setWorkplaceHybrid(!workplaceHybrid)}
                           className={`flex-1 py-2 px-3 rounded-lg border text-center font-medium transition-all ${
-                            workplaceHybrid
+                            locationScope === "global"
+                              ? "bg-[#0c0c16]/30 border-slate-900/40 text-slate-700 cursor-not-allowed"
+                              : workplaceHybrid
                               ? "bg-violet-500/10 border-violet-500 text-violet-300 shadow-[0_0_10px_rgba(139,92,246,0.1)]"
                               : "bg-[#0e0e1a] border-slate-800/60 text-slate-500 hover:text-slate-350 hover:border-slate-700"
                           }`}
@@ -370,17 +389,17 @@ export default function App() {
                         </button>
                         <button
                           type="button"
-                          disabled={locationType === "remote"}
+                          disabled={locationScope === "global"}
                           onClick={() => setWorkplaceRemote(!workplaceRemote)}
                           className={`flex-1 py-2 px-3 rounded-lg border text-center font-medium transition-all ${
-                            locationType === "remote"
-                              ? "bg-violet-500/5 border-violet-500/30 text-violet-400/80 cursor-not-allowed"
+                            locationScope === "global"
+                              ? "bg-[#0e0e1a]/80 border-violet-500/30 text-violet-400/80 cursor-not-allowed shadow-[0_0_10px_rgba(139,92,246,0.05)]"
                               : workplaceRemote
                               ? "bg-violet-500/10 border-violet-500 text-violet-300 shadow-[0_0_10px_rgba(139,92,246,0.1)]"
                               : "bg-[#0e0e1a] border-slate-800/60 text-slate-500 hover:text-slate-350 hover:border-slate-700"
                           }`}
                         >
-                          Remoto {locationType === "remote" && " (Activo)"}
+                          Remoto
                         </button>
                       </div>
                     </div>

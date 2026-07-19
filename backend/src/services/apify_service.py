@@ -6,12 +6,14 @@ from apify_client import ApifyClientAsync
 from src.schemas.cv import JobDetail
 
 
+# LinkedIn publishedAt values
 DATE_POSTED_VALUES = {
     "24h": "r86400",
     "7d": "r604800",
     "30d": "r2592000",
 }
 
+# Actor workType values (as documented in actor input schema)
 WORKPLACE_TYPE_VALUES = {
     "presencial": "on-site",
     "on-site": "on-site",
@@ -36,7 +38,7 @@ def _build_resume_keywords(skills: Optional[List[str]]) -> List[dict]:
 
 
 def _build_work_types(location_type: Optional[str], workplace_types: Optional[str]) -> List[str]:
-    """Map frontend labels to documented Actor workType values."""
+    """Map frontend labels to Actor workType array values."""
     if location_type == "remote":
         return ["remote"]
 
@@ -47,24 +49,71 @@ def _build_work_types(location_type: Optional[str], workplace_types: Optional[st
             values.append(work_type)
     return values
 
-def _build_keywords(query: str, target_roles: Optional[List[str]]) -> List[str]:
-    """Use role titles for recall; work mode belongs in workType, not query text."""
+
+ROLE_TRANSLATIONS_TO_ES = {
+    "full-stack developer": "Desarrollador Full Stack",
+    "full stack developer": "Desarrollador Full Stack",
+    "fullstack developer": "Desarrollador Full Stack",
+    "frontend developer": "Desarrollador Frontend",
+    "front-end developer": "Desarrollador Frontend",
+    "front end developer": "Desarrollador Frontend",
+    "backend developer": "Desarrollador Backend",
+    "back-end developer": "Desarrollador Backend",
+    "back end developer": "Desarrollador Backend",
+    "web developer": "Desarrollador Web",
+    "software engineer": "Desarrollador de Software",
+    "software developer": "Desarrollador de Software",
+    "mobile developer": "Desarrollador Móvil",
+    "react developer": "Desarrollador React",
+    "node developer": "Desarrollador Node",
+    "java developer": "Desarrollador Java",
+    "python developer": "Desarrollador Python",
+}
+
+
+def _translate_role_to_es(role: str) -> str:
+    role_lower = role.strip().lower()
+    if role_lower in ROLE_TRANSLATIONS_TO_ES:
+        return ROLE_TRANSLATIONS_TO_ES[role_lower]
+
+    translated = role
+    translated = re.sub(r"\b(full-stack|fullstack|full stack)\s+developer\b", "Desarrollador Full Stack", translated, flags=re.IGNORECASE)
+    translated = re.sub(r"\b(front-end|frontend|front end)\s+developer\b", "Desarrollador Frontend", translated, flags=re.IGNORECASE)
+    translated = re.sub(r"\b(back-end|backend|back end)\s+developer\b", "Desarrollador Backend", translated, flags=re.IGNORECASE)
+    translated = re.sub(r"\bdeveloper\b", "Desarrollador", translated, flags=re.IGNORECASE)
+    translated = re.sub(r"\bengineer\b", "Ingeniero", translated, flags=re.IGNORECASE)
+    return translated.strip()
+
+
+def _build_keywords(query: str, target_roles: Optional[List[str]], job_language: Optional[str] = None) -> List[str]:
+    """Use role titles from CV for recall; strip work-mode words from query.
+
+    Translates roles to Spanish if job_language is 'es' to improve Spanish job retrieval.
+    """
     roles = []
+    seen = set()
     for role in target_roles or []:
         normalized = role.strip()
-        if normalized and normalized.casefold() not in {value.casefold() for value in roles}:
+        if job_language == "es":
+            normalized = _translate_role_to_es(normalized)
+        if normalized and normalized.casefold() not in seen:
+            seen.add(normalized.casefold())
             roles.append(normalized)
 
     if roles:
         return roles[:3]
 
-    cleaned_query = re.sub(
+    cleaned = re.sub(
         r"\b(remote|remoto|hybrid|hibrido|presencial|on-site)\b",
         "",
         query,
         flags=re.IGNORECASE,
     )
-    return [re.sub(r"\s+", " ", cleaned_query).strip() or query]
+    cleaned_query = re.sub(r"\s+", " ", cleaned).strip() or query
+    if job_language == "es":
+        cleaned_query = _translate_role_to_es(cleaned_query)
+    return [cleaned_query]
+
 
 async def scrape_linkedin_jobs(
     client: ApifyClientAsync,
@@ -76,11 +125,17 @@ async def scrape_linkedin_jobs(
     workplace_types: Optional[str] = None,
     resume_skills: Optional[List[str]] = None,
     target_roles: Optional[List[str]] = None,
+    job_language: Optional[str] = None,
 ) -> List[JobDetail]:
-    """Scrape LinkedIn jobs through Actor native keyword search filters."""
+    """Scrape LinkedIn jobs using Actor native input parameters.
+
+    Uses keyword, locations, workType, publishedAt, resumeKeywords
+    as documented in the actor's input schema for maximum precision.
+    """
     actor_id = os.getenv("LINKEDIN_ACTOR_ID", "cheap_scraper/linkedin-job-scraper")
+
     run_input = {
-        "keyword": _build_keywords(query, target_roles),
+        "keyword": _build_keywords(query, target_roles, job_language),
         "enrichCompanyData": False,
         "excludeRecruitingAgencies": False,
         "filterEasyApply": False,
@@ -88,16 +143,24 @@ async def scrape_linkedin_jobs(
         "saveOnlyUniqueItems": True,
         "maxItems": max(limit, 150),
     }
+
+    # Date posted (publishedAt) - "any" means no filter
     published_at = DATE_POSTED_VALUES.get(date_posted)
     if published_at:
         run_input["publishedAt"] = published_at
+
+    # Location (must be in English for LinkedIn to resolve geoId correctly)
     if target_location and target_location.strip():
         run_input["locations"] = [target_location.strip()]
+    else:
+        run_input["locations"] = ["Worldwide"]
 
+    # Workplace type filter
     work_types = _build_work_types(location_type, workplace_types)
     if work_types:
         run_input["workType"] = work_types
 
+    # Resume keywords for scoring
     resume_keywords = _build_resume_keywords(resume_skills)
     if resume_keywords:
         run_input["resumeKeywords"] = resume_keywords
@@ -126,47 +189,6 @@ async def scrape_linkedin_jobs(
         print(f"Error scraping LinkedIn Jobs: {str(e)}", flush=True)
         return []
 
-async def scrape_google_jobs(client: ApifyClientAsync, query: str, limit: int = 5) -> List[JobDetail]:
-    """Scrape Google Jobs listings using Apify's public Google Jobs Scraper."""
-    actor_id = os.getenv("GOOGLE_JOBS_ACTOR_ID", "orgupdate/google-jobs-scraper")
-    run_input = {
-        "includeKeyword": query,
-        "pagesToFetch": 1,
-    }
-    
-    try:
-        run = await client.actor(actor_id).call(run_input=run_input)
-        dataset = await client.dataset(run.default_dataset_id).list_items()
-        
-        jobs = []
-        for item in dataset.items:
-            title = item.get("title") or "Posición Desconocida"
-            company = item.get("companyName") or "Empresa Desconocida"
-            location = item.get("location") or "Remoto / No especificado"
-            link = item.get("applyLink") or item.get("jobLink") or item.get("googleJobsUrl") or item.get("url") or ""
-            description = item.get("description") or ""
-            
-            if not link:
-                continue
-                
-            jobs.append(
-                JobDetail(
-                    title=title,
-                    company=company,
-                    location=location,
-                    link=link,
-                    description=description[:800],
-                    saved_to_notion=False
-                )
-            )
-            
-            if len(jobs) >= limit:
-                break
-                
-        return jobs
-    except Exception as e:
-        print(f"Error scraping Google Jobs: {str(e)}")
-        return []
 
 async def scrape_jobs_concurrently(
     query: str,
@@ -177,14 +199,15 @@ async def scrape_jobs_concurrently(
     workplace_types: Optional[str] = None,
     resume_skills: Optional[List[str]] = None,
     target_roles: Optional[List[str]] = None,
+    job_language: Optional[str] = None,
 ) -> List[JobDetail]:
     """Scrape LinkedIn jobs and return unified list."""
     token = os.getenv("APIFY_TOKEN")
     if not token:
         raise ValueError("APIFY_TOKEN environment variable is not configured")
-        
+
     client = ApifyClientAsync(token)
-    
+
     results = await asyncio.gather(
         scrape_linkedin_jobs(
             client=client,
@@ -196,17 +219,18 @@ async def scrape_jobs_concurrently(
             workplace_types=workplace_types,
             resume_skills=resume_skills,
             target_roles=target_roles,
+            job_language=job_language,
         ),
         return_exceptions=True
     )
-    
+
     all_jobs = []
     for res in results:
         if isinstance(res, list):
             all_jobs.extend(res)
         else:
             print(f"Parallel scraper execution failed: {str(res)}")
-            
+
     # De-duplicate jobs based on URL/link
     seen_links = set()
     unique_jobs = []
@@ -214,5 +238,5 @@ async def scrape_jobs_concurrently(
         if job.link not in seen_links:
             seen_links.add(job.link)
             unique_jobs.append(job)
-            
+
     return unique_jobs

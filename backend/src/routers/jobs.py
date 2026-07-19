@@ -57,12 +57,16 @@ async def upload_cv(
         # Set target location based on scope
         if location_scope == "global":
             target_loc = None
+            effective_workplace_types = "remoto"
         elif location_scope == "cv":
             target_loc = profile.location
+            effective_workplace_types = workplace_types
         elif location_scope == "manual":
             target_loc = profile.location if manual_location and manual_location.strip() else None
+            effective_workplace_types = workplace_types
         else:
             target_loc = None
+            effective_workplace_types = workplace_types
         
         # 3. Scrapear ofertas usando la query generada y filtros
         # Limitamos a 15 vacantes para no saturar la API gratuita de Gemini
@@ -73,7 +77,7 @@ async def upload_cv(
             location_type=None,
             date_posted=effective_date_posted,
             target_location=target_loc,
-            workplace_types=workplace_types,
+            workplace_types=effective_workplace_types,
             resume_skills=profile.skills,
             target_roles=profile.target_roles,
             job_language=effective_job_language,
@@ -93,7 +97,8 @@ async def upload_cv(
                     job.title, 
                     job.company, 
                     job.description or "",
-                    job_language=effective_job_language
+                    job_language=effective_job_language,
+                    workplace_types=effective_workplace_types
                 )
                 job.match_score = match_result.match_score
                 job.apply_tip = match_result.explanation

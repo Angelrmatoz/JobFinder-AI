@@ -3,7 +3,7 @@ from google.genai import types
 import os
 import json
 import re
-from typing import Any
+from typing import Any, Optional
 from src.schemas.cv import CVProfile, JobMatchResult
 
 # Initialize the Gemini Client. 
@@ -51,7 +51,7 @@ def is_spanish(text: str) -> bool:
     }
     text_lower = text.lower()
     matches = sum(1 for pattern in spanish_indicators if re.search(pattern, text_lower))
-    return matches >= 3
+    return matches >= 2
 
 def is_english(text: str) -> bool:
     """Detect if the text is in English based on stopwords."""
@@ -61,7 +61,7 @@ def is_english(text: str) -> bool:
     }
     text_lower = text.lower()
     matches = sum(1 for pattern in english_indicators if re.search(pattern, text_lower))
-    return matches >= 3
+    return matches >= 2
 
 def parse_cv_with_gemma(cv_text: str, manual_location: str = None) -> CVProfile:
     """Parse raw CV text using Gemini structured outputs to return CVProfile."""
@@ -110,7 +110,8 @@ def evaluate_job_match(
     job_title: str, 
     job_company: str, 
     job_description: str,
-    job_language: str = "both"
+    job_language: str = "both",
+    workplace_types: Optional[str] = None
 ) -> JobMatchResult:
     """Evaluate job affinity to return a match score and quick apply tip."""
     # Programmatic language checks
@@ -132,10 +133,26 @@ def evaluate_job_match(
         language_constraint = "\n- IMPORTANT: The job offer MUST be in Spanish. If it is in English or any other language, assign a match_score of 1 and explain that the language is not Spanish."
     elif job_language == "en":
         language_constraint = "\n- IMPORTANT: The job offer MUST be in English. If it is in Spanish or any other language, assign a match_score of 1 and explain that the language is not English."
+
+    workplace_constraint = ""
+    if workplace_types:
+        allowed = [w.strip().lower() for w in workplace_types.split(",")]
+        allowed_terms = []
+        if "remoto" in allowed or "remote" in allowed:
+            allowed_terms.append("Remote")
+        if "hibrido" in allowed or "hybrid" in allowed:
+            allowed_terms.append("Hybrid")
+        if "presencial" in allowed or "on-site" in allowed or "onsite" in allowed:
+            allowed_terms.append("On-site / Presencial")
+            
+        if allowed_terms:
+            allowed_str = " or ".join(allowed_terms)
+            workplace_constraint = f"\n- IMPORTANT: The candidate is ONLY interested in {allowed_str} jobs. If the job description or details indicate a different work modality (e.g., if it requires on-site presence but they only want Remote, or if it says Hybrid but they only want Remote), you MUST assign a match_score of 1 and explain that the work modality does not match."
         
     prompt = f"""
     Compare the following candidate profile with the job details to calculate a match score (1 to 10) and write a short, highly personalized recommendation/tip (1-2 sentences) on how this candidate can apply to stand out.
     {language_constraint}
+    {workplace_constraint}
     
     Candidate Profile:
     - Skills: {', '.join(cv_profile.skills)}

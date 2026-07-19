@@ -172,6 +172,8 @@ async def scrape_linkedin_jobs(
         dataset = await client.dataset(run.default_dataset_id).list_items()
         print(f"[APIFY_SERVICE] Retrieved {len(dataset.items)} items from dataset.", flush=True)
 
+        from src.services.gemini_service import is_spanish, is_english
+
         jobs = []
         for item in dataset.items:
             title = item.get("jobTitle") or item.get("title") or item.get("positionName") or "Posición Desconocida"
@@ -181,6 +183,14 @@ async def scrape_linkedin_jobs(
             description = item.get("jobDescription") or item.get("description") or item.get("descriptionText") or ""
             if not link:
                 continue
+
+            # Programmatically filter out wrong language jobs early to avoid filling the limit slots with them
+            text_to_check = f"{title} {description}"
+            if job_language == "es" and not is_spanish(text_to_check):
+                continue
+            if job_language == "en" and not is_english(text_to_check):
+                continue
+
             jobs.append(JobDetail(title=title, company=company, location=location, link=link, description=description[:800], saved_to_notion=False))
             if len(jobs) >= limit:
                 break

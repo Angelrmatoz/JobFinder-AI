@@ -95,3 +95,44 @@ async def test_scrape_jobs_concurrently_success():
             assert "https://job2.com" in links
             
             mock_lnk.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_scrape_linkedin_jobs_filters():
+    """Validar que la URL de búsqueda de LinkedIn se construya correctamente con filtros."""
+    mock_client = MagicMock()
+    mock_actor = MagicMock()
+    mock_actor.call = AsyncMock(return_value=MagicMock(default_dataset_id="dataset_lnk"))
+    mock_client.actor.return_value = mock_actor
+    
+    mock_dataset = MagicMock()
+    mock_dataset_items = MagicMock()
+    mock_dataset_items.items = []
+    mock_dataset.list_items = AsyncMock(return_value=mock_dataset_items)
+    mock_client.dataset.return_value = mock_dataset
+    
+    # Probar con filtros
+    await scrape_linkedin_jobs(
+        client=mock_client,
+        query="Python",
+        limit=5,
+        location_type="local",
+        date_posted="24h",
+        target_location="Spain",
+        workplace_types="presencial,hibrido",
+        resume_skills=["Python", "Docker", "python", ""],
+        target_roles=["Python Developer", "Backend Developer"],
+    )
+    
+    # Obtener el input pasado al actor
+    call_args = mock_actor.call.call_args
+    run_input = call_args[1]["run_input"]
+    
+    assert run_input["keyword"] == ["Python Developer", "Backend Developer"]
+    assert run_input["publishedAt"] == "r86400"
+    assert run_input["locations"] == ["Spain"]
+    assert run_input["workType"] == ["on-site", "hybrid"]
+    assert run_input["resumeKeywords"] == [
+        {"keyword": "Python"},
+        {"keyword": "Docker"},
+    ]
+    assert "startUrls" not in run_input

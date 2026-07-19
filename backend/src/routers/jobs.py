@@ -1,6 +1,7 @@
 import asyncio
 import os
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from typing import Optional
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from pydantic import BaseModel
 from src.schemas.cv import CVProfile, JobDetail, CVProcessResponse
 from src.services.pdf_service import extract_text_from_pdf
@@ -15,7 +16,14 @@ class ChatRequest(BaseModel):
     context: str
 
 @router.post("/api/upload-cv", response_model=CVProcessResponse)
-async def upload_cv(file: UploadFile = File(...)):
+async def upload_cv(
+    file: UploadFile = File(...),
+    location_type: Optional[str] = Form(None),
+    date_posted: Optional[str] = Form(None),
+    manual_location: Optional[str] = Form(None),
+    workplace_types: Optional[str] = Form(None),
+    job_language: Optional[str] = Form(None),
+):
     """
     Pipeline completo:
     1. Extraer texto del PDF del CV.
@@ -28,6 +36,7 @@ async def upload_cv(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Solo se admiten archivos PDF.")
         
     try:
+        print(f"[JOBS_ROUTER] upload_cv: location_type={location_type}, date_posted={date_posted}, manual_location={manual_location}, workplace_types={workplace_types}, job_language={job_language}", flush=True)
         # 1. Leer y extraer texto
         pdf_bytes = await file.read()
         cv_text = extract_text_from_pdf(pdf_bytes)
@@ -36,11 +45,30 @@ async def upload_cv(file: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail="No se pudo extraer texto del PDF.")
             
         # 2. Interpretar CV con Gemini
-        profile = parse_cv_with_gemma(cv_text)
+        print("[JOBS_ROUTER] Parsing CV text with Gemini...", flush=True)
+        profile = await asyncio.to_thread(parse_cv_with_gemma, cv_text, manual_location)
+        print(f"[JOBS_ROUTER] Parsed CV profile: {profile}", flush=True)
         
-        # 3. Scrapear ofertas usando la query generada
+        # Determine filters with defaults
+        effective_date_posted = date_posted if date_posted else "7d"
+        effective_location_type = location_type or "both"
+        effective_job_language = job_language or "both"
+        target_loc = profile.location # Gemini already incorporated manual_location and translated it
+        
+        # 3. Scrapear ofertas usando la query generada y filtros
         # Limitamos a 15 vacantes para no saturar la API gratuita de Gemini
-        scraped_jobs = await scrape_jobs_concurrently(profile.search_query, limit=15)
+        print(f"[JOBS_ROUTER] Scraping jobs concurrently for query='{profile.search_query}' location_type='{effective_location_type}' location='{target_loc}' date_posted='{effective_date_posted}'...", flush=True)
+        scraped_jobs = await scrape_jobs_concurrently(
+            query=profile.search_query,
+            limit=15,
+            location_type=effective_location_type,
+            date_posted=effective_date_posted,
+            target_location=target_loc,
+            workplace_types=workplace_types,
+            resume_skills=profile.skills,
+            target_roles=profile.target_roles,
+        )
+        print(f"[JOBS_ROUTER] Scraped {len(scraped_jobs)} jobs. Commencing matching...", flush=True)
         
         if not scraped_jobs:
             return CVProcessResponse(profile=profile, jobs=[])
@@ -54,7 +82,8 @@ async def upload_cv(file: UploadFile = File(...)):
                     profile, 
                     job.title, 
                     job.company, 
-                    job.description or ""
+                    job.description or "",
+                    job_language=effective_job_language
                 )
                 job.match_score = match_result.match_score
                 job.apply_tip = match_result.explanation

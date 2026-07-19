@@ -39,15 +39,18 @@ def generate_content_with_fallback(client: genai.Client, contents: str, config: 
             
     raise last_error if last_error else ValueError("No Gemini models configured in fallback chain.")
 
-def parse_cv_with_gemma(cv_text: str) -> CVProfile:
+def parse_cv_with_gemma(cv_text: str, manual_location: str = None) -> CVProfile:
     """Parse raw CV text using Gemini structured outputs to return CVProfile."""
     client = get_client()
     
     prompt = f"""
     Extract the professional profile from this CV text.
     Analyze the candidate's skills, experience, and target roles.
+    Also extract the candidate's location (city and/or country). 
+    {f"IMPORTANT OVERRIDE: The user has manually specified their location as '{manual_location}'. USE THIS LOCATION instead of the one in the CV." if manual_location else ""}
+    IMPORTANT: Always translate the final location to English (e.g. 'Dominican Republic' instead of 'República Dominicana', or 'Spain' instead of 'España'). If no location is found, set it to null.
     Also generate an optimized search query string to find jobs for this profile.
-    The query should be brief, target roles, and optionally add 'remote' or specific top technologies if relevant (e.g. 'React developer junior remote').
+    The query should be brief and contain only target roles and core technologies. Do not add location or work-mode terms such as 'remote'; those are applied as dedicated search filters.
     
     CV Text:
     {cv_text}
@@ -78,12 +81,25 @@ def parse_cv_with_gemma(cv_text: str) -> CVProfile:
     except Exception as e:
         raise ValueError(f"Failed to parse CV with Gemini: {str(e)}. Response was: {response.text}")
 
-def evaluate_job_match(cv_profile: CVProfile, job_title: str, job_company: str, job_description: str) -> JobMatchResult:
+def evaluate_job_match(
+    cv_profile: CVProfile, 
+    job_title: str, 
+    job_company: str, 
+    job_description: str,
+    job_language: str = "both"
+) -> JobMatchResult:
     """Evaluate job affinity to return a match score and quick apply tip."""
     client = get_client()
     
+    language_constraint = ""
+    if job_language == "es":
+        language_constraint = "\n- IMPORTANT: The job offer MUST be in Spanish. If it is in English or any other language, assign a match_score of 1 and explain that the language is not Spanish."
+    elif job_language == "en":
+        language_constraint = "\n- IMPORTANT: The job offer MUST be in English. If it is in Spanish or any other language, assign a match_score of 1 and explain that the language is not English."
+        
     prompt = f"""
     Compare the following candidate profile with the job details to calculate a match score (1 to 10) and write a short, highly personalized recommendation/tip (1-2 sentences) on how this candidate can apply to stand out.
+    {language_constraint}
     
     Candidate Profile:
     - Skills: {', '.join(cv_profile.skills)}

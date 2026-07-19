@@ -4,7 +4,7 @@ import LoadingPulse from "./components/LoadingPulse";
 import ResultsPanel from "./components/ResultsPanel";
 import ChatPanel from "./components/ChatPanel";
 
-const API = import.meta.env.DEV ? "http://localhost:8000" : "";
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://127.0.0.1:8000" : "");
 
 export default function App() {
   const [loading, setLoading] = useState(false);
@@ -13,7 +13,48 @@ export default function App() {
   const [error, setError] = useState(null);
   const [dragActive, setDragActive] = useState(false);
   
+  const [showFilters, setShowFilters] = useState(false);
+  const [locationType, setLocationType] = useState("both");
+  const [manualLocation, setManualLocation] = useState("");
+  const [datePosted, setDatePosted] = useState("7d");
+  const [workplaceOnSite, setWorkplaceOnSite] = useState(false);
+  const [workplaceRemote, setWorkplaceRemote] = useState(false);
+  const [workplaceHybrid, setWorkplaceHybrid] = useState(false);
+  const [langSpanish, setLangSpanish] = useState(false);
+  const [langEnglish, setLangEnglish] = useState(false);
+  const [langAny, setLangAny] = useState(true);
+  
   const fileInputRef = useRef(null);
+
+  const handleToggleSpanish = () => {
+    setLangSpanish((prev) => {
+      const next = !prev;
+      if (next) {
+        setLangAny(false);
+      } else if (!langEnglish) {
+        setLangAny(true);
+      }
+      return next;
+    });
+  };
+
+  const handleToggleEnglish = () => {
+    setLangEnglish((prev) => {
+      const next = !prev;
+      if (next) {
+        setLangAny(false);
+      } else if (!langSpanish) {
+        setLangAny(true);
+      }
+      return next;
+    });
+  };
+
+  const handleToggleAny = () => {
+    setLangAny(true);
+    setLangSpanish(false);
+    setLangEnglish(false);
+  };
 
   const loadingMessages = [
     "Leyendo y extrayendo texto del PDF...",
@@ -72,18 +113,53 @@ export default function App() {
 
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("location_type", locationType);
+    formData.append("date_posted", datePosted);
+    
+    // Determine job language to send
+    let effectiveJobLang = "both";
+    if (langSpanish && !langEnglish) {
+      effectiveJobLang = "es";
+    } else if (langEnglish && !langSpanish) {
+      effectiveJobLang = "en";
+    }
+    formData.append("job_language", effectiveJobLang);
+    
+    if (manualLocation.trim()) {
+      formData.append("manual_location", manualLocation.trim());
+    }
+    const wt = [];
+    if (workplaceOnSite) wt.push("presencial");
+    if (workplaceRemote) wt.push("remoto");
+    if (workplaceHybrid) wt.push("hibrido");
+    if (wt.length > 0) {
+      formData.append("workplace_types", wt.join(","));
+    }
+
+    console.log("=== FRONTEND LOG: Datos enviados al Backend ===");
+    for (let [key, value] of formData.entries()) {
+      console.log(`[${key}]:`, value instanceof File ? `Archivo (${value.name}, ${value.size} bytes)` : value);
+    }
+    console.log("===============================================");
+
+    const uploadUrl = `${API}/api/upload-cv`;
+    console.info("[UPLOAD] POST", uploadUrl);
 
     try {
-      const res = await axiosInstance.post(`${API}/api/upload-cv`, formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
+      const res = await axiosInstance.post(uploadUrl, formData, {
         timeout: 240000 // 4 minutes timeout for parallel scraping + matching
       });
       setResult(res.data);
     } catch (err) {
+      console.error("[UPLOAD] Request failed", {
+        url: uploadUrl,
+        code: err.code,
+        message: err.message,
+        status: err.response?.status,
+        data: err.response?.data,
+      });
       setError(
-        err.response?.data?.detail || 
+        err.response?.data?.detail ||
         "Hubo un error procesando el archivo. Asegúrate de configurar las APIs."
       );
     } finally {
@@ -165,6 +241,152 @@ export default function App() {
             </div>
           ) : (
             <>
+              {/* Expandable Advanced Filters Accordion */}
+              <div className="mb-5 border border-slate-800/80 rounded-2xl bg-slate-900/30 overflow-hidden backdrop-blur-sm">
+                <button
+                  type="button"
+                  onClick={() => setShowFilters(!showFilters)}
+                  className="w-full px-5 py-4 flex items-center justify-between text-sm font-semibold text-slate-200 hover:bg-slate-800/20 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="text-violet-400">⚙️</span> Filtros de Búsqueda Avanzados (Opcional)
+                  </span>
+                  <span className={`transition-transform duration-300 ${showFilters ? "rotate-180" : ""}`}>
+                    ▼
+                  </span>
+                </button>
+                
+                {showFilters && (
+                  <div className="px-5 pb-5 pt-2 border-t border-slate-800/60 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                    {/* Location Type */}
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-slate-400 font-medium">Ubicación de Ofertas</label>
+                      <select
+                        value={locationType}
+                        onChange={(e) => setLocationType(e.target.value)}
+                        className="bg-[#0e0e1a] border border-slate-800 rounded-lg px-3 py-2 text-slate-300 focus:outline-none focus:border-violet-500 transition-colors"
+                      >
+                        <option value="both">Cualquier modalidad disponible en mi país</option>
+                        <option value="local">Ofertas locales en mi país</option>
+                        <option value="remote">Solo remoto disponible en mi país</option>
+                      </select>
+                    </div>
+
+                    {/* Date Posted */}
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-slate-400 font-medium">Fecha de Publicación</label>
+                      <select
+                        value={datePosted}
+                        onChange={(e) => setDatePosted(e.target.value)}
+                        className="bg-[#0e0e1a] border border-slate-800 rounded-lg px-3 py-2 text-slate-300 focus:outline-none focus:border-violet-500 transition-colors"
+                      >
+                        <option value="any">Cualquier momento</option>
+                        <option value="7d">Última semana (7 días)</option>
+                        <option value="24h">Últimas 24 horas</option>
+                        <option value="30d">Último mes (30 días)</option>
+                      </select>
+                    </div>
+
+                    {/* Job Language (Pills Selector) */}
+                    <div className="flex flex-col gap-1.5 sm:col-span-2">
+                      <label className="text-slate-400 font-medium">Idioma de la Oferta</label>
+                      <div className="flex gap-2.5 mt-1">
+                        <button
+                          type="button"
+                          onClick={handleToggleSpanish}
+                          className={`flex-1 py-2 px-3 rounded-lg border text-center font-medium transition-all ${
+                            langSpanish
+                              ? "bg-violet-500/10 border-violet-500 text-violet-300 shadow-[0_0_10px_rgba(139,92,246,0.1)]"
+                              : "bg-[#0e0e1a] border-slate-800/60 text-slate-500 hover:text-slate-350 hover:border-slate-700"
+                          }`}
+                        >
+                          Español
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleToggleEnglish}
+                          className={`flex-1 py-2 px-3 rounded-lg border text-center font-medium transition-all ${
+                            langEnglish
+                              ? "bg-violet-500/10 border-violet-500 text-violet-300 shadow-[0_0_10px_rgba(139,92,246,0.1)]"
+                              : "bg-[#0e0e1a] border-slate-800/60 text-slate-500 hover:text-slate-350 hover:border-slate-700"
+                          }`}
+                        >
+                          Inglés
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleToggleAny}
+                          className={`flex-1 py-2 px-3 rounded-lg border text-center font-medium transition-all ${
+                            langAny
+                              ? "bg-violet-500/10 border-violet-500 text-violet-300 shadow-[0_0_10px_rgba(139,92,246,0.1)]"
+                              : "bg-[#0e0e1a] border-slate-800/60 text-slate-500 hover:text-slate-350 hover:border-slate-700"
+                          }`}
+                        >
+                          Cualquiera
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Manual Location Override */}
+                    <div className="flex flex-col gap-1.5 sm:col-span-2">
+                      <label className="text-slate-400 font-medium flex items-center justify-between">
+                        <span>Ubicación Manual (Opcional)</span>
+                        <span className="text-[10px] text-slate-500">Ignora el CV si se especifica</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={manualLocation}
+                        onChange={(e) => setManualLocation(e.target.value)}
+                        placeholder="Ej. Madrid, España / Colombia / London, UK"
+                        className="bg-[#0e0e1a] border border-slate-800 rounded-lg px-3 py-2 text-slate-300 focus:outline-none focus:border-violet-500 transition-colors placeholder-slate-600"
+                      />
+                    </div>
+
+                    {/* Workplace Modalidad (Workplace Type badging/pills) */}
+                    <div className="flex flex-col gap-1.5 sm:col-span-2">
+                      <label className="text-slate-400 font-medium">Modalidad de Trabajo (Múltiple)</label>
+                      <div className="flex gap-2.5 mt-1">
+                        <button
+                          type="button"
+                          onClick={() => setWorkplaceOnSite(!workplaceOnSite)}
+                          className={`flex-1 py-2 px-3 rounded-lg border text-center font-medium transition-all ${
+                            workplaceOnSite
+                              ? "bg-violet-500/10 border-violet-500 text-violet-300 shadow-[0_0_10px_rgba(139,92,246,0.1)]"
+                              : "bg-[#0e0e1a] border-slate-800/60 text-slate-500 hover:text-slate-350 hover:border-slate-700"
+                          }`}
+                        >
+                          Presencial
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setWorkplaceHybrid(!workplaceHybrid)}
+                          className={`flex-1 py-2 px-3 rounded-lg border text-center font-medium transition-all ${
+                            workplaceHybrid
+                              ? "bg-violet-500/10 border-violet-500 text-violet-300 shadow-[0_0_10px_rgba(139,92,246,0.1)]"
+                              : "bg-[#0e0e1a] border-slate-800/60 text-slate-500 hover:text-slate-350 hover:border-slate-700"
+                          }`}
+                        >
+                          Híbrido
+                        </button>
+                        <button
+                          type="button"
+                          disabled={locationType === "remote"}
+                          onClick={() => setWorkplaceRemote(!workplaceRemote)}
+                          className={`flex-1 py-2 px-3 rounded-lg border text-center font-medium transition-all ${
+                            locationType === "remote"
+                              ? "bg-violet-500/5 border-violet-500/30 text-violet-400/80 cursor-not-allowed"
+                              : workplaceRemote
+                              ? "bg-violet-500/10 border-violet-500 text-violet-300 shadow-[0_0_10px_rgba(139,92,246,0.1)]"
+                              : "bg-[#0e0e1a] border-slate-800/60 text-slate-500 hover:text-slate-350 hover:border-slate-700"
+                          }`}
+                        >
+                          Remoto {locationType === "remote" && " (Activo)"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
               <div
                 onDragEnter={handleDrag}
                 onDragOver={handleDrag}

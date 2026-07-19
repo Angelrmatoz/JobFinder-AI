@@ -2,6 +2,7 @@ from google import genai
 from google.genai import types
 import os
 import json
+import re
 from typing import Any
 from src.schemas.cv import CVProfile, JobMatchResult
 
@@ -26,6 +27,7 @@ def generate_content_with_fallback(client: genai.Client, contents: str, config: 
         if not model_name:
             continue
         try:
+            print(f"[GEMINI_SERVICE] Trying generation with model: {model_name}", flush=True)
             response = client.models.generate_content(
                 model=model_name,
                 contents=contents,
@@ -33,11 +35,33 @@ def generate_content_with_fallback(client: genai.Client, contents: str, config: 
             )
             return response
         except Exception as e:
-            print(f"Model {model_name} failed: {e}. Trying next fallback...")
+            print(f"[GEMINI_SERVICE] Warning: model {model_name} failed. Error: {str(e)}", flush=True)
             last_error = e
             continue
             
-    raise last_error if last_error else ValueError("No Gemini models configured in fallback chain.")
+    raise RuntimeError(f"All fallback models failed. Last error: {str(last_error)}")
+
+def is_spanish(text: str) -> bool:
+    """Detect if the text is in Spanish based on stopwords."""
+    spanish_indicators = {
+        r"\bde\b", r"\bque\b", r"\by\b", r"\ben\b", r"\bel\b", r"\bla\b", 
+        r"\bpara\b", r"\bcon\b", r"\bdel\b", r"\blos\b", r"\blas\b", 
+        r"\buna\b", r"\buno\b", r"\bcomo\b", r"\btrabajo\b", r"\brequisitos\b",
+        r"\bexperiencia\b", r"\bdesarrollador\b", r"\bdesarrollo\b"
+    }
+    text_lower = text.lower()
+    matches = sum(1 for pattern in spanish_indicators if re.search(pattern, text_lower))
+    return matches >= 3
+
+def is_english(text: str) -> bool:
+    """Detect if the text is in English based on stopwords."""
+    english_indicators = {
+        r"\bthe\b", r"\band\b", r"\bof\b", r"\bto\b", r"\bin\b", r"\bis\b", 
+        r"\byou\b", r"\bfor\b", r"\bwith\b", r"\bexperience\b", r"\brequired\b"
+    }
+    text_lower = text.lower()
+    matches = sum(1 for pattern in english_indicators if re.search(pattern, text_lower))
+    return matches >= 3
 
 def parse_cv_with_gemma(cv_text: str, manual_location: str = None) -> CVProfile:
     """Parse raw CV text using Gemini structured outputs to return CVProfile."""
@@ -89,6 +113,18 @@ def evaluate_job_match(
     job_language: str = "both"
 ) -> JobMatchResult:
     """Evaluate job affinity to return a match score and quick apply tip."""
+    # Programmatic language checks
+    if job_language == "es" and not is_spanish(job_description):
+        return JobMatchResult(
+            match_score=1,
+            explanation="La oferta de empleo está escrita en otro idioma (no es Español)."
+        )
+    if job_language == "en" and not is_english(job_description):
+        return JobMatchResult(
+            match_score=1,
+            explanation="The job offer is written in another language (not English)."
+        )
+
     client = get_client()
     
     language_constraint = ""

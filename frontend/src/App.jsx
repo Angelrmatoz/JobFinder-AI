@@ -30,8 +30,9 @@ export default function App() {
     setLangSpanish((prev) => {
       const next = !prev;
       if (next) {
+        setLangEnglish(false);
         setLangAny(false);
-      } else if (!langEnglish) {
+      } else {
         setLangAny(true);
       }
       return next;
@@ -42,8 +43,9 @@ export default function App() {
     setLangEnglish((prev) => {
       const next = !prev;
       if (next) {
+        setLangSpanish(false);
         setLangAny(false);
-      } else if (!langSpanish) {
+      } else {
         setLangAny(true);
       }
       return next;

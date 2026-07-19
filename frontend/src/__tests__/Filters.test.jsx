@@ -80,4 +80,39 @@ describe("Frontend Filters UI Interaction", () => {
     expect(btnHibrido).not.toBeDisabled();
     expect(btnRemoto).not.toBeDisabled();
   });
+
+  it("debe permitir selección exclusiva de Español e Inglés y colapsar a Cualquiera si se desmarcan", () => {
+    render(<App />);
+
+    // Expandir acordeón
+    const toggleFiltersBtn = screen.getByRole("button", { name: /Filtros de Búsqueda Avanzados/i });
+    fireEvent.click(toggleFiltersBtn);
+
+    const btnEspanol = screen.getByRole("button", { name: "Español" });
+    const btnIngles = screen.getByRole("button", { name: "Inglés" });
+    const btnCualquiera = screen.getByRole("button", { name: "Cualquiera" });
+
+    // Por defecto 'Cualquiera' es activo
+    expect(btnCualquiera).toHaveClass("bg-violet-500/10");
+    expect(btnEspanol).toHaveClass("bg-[#0e0e1a]");
+    expect(btnIngles).toHaveClass("bg-[#0e0e1a]");
+
+    // Clic en Español -> Español activo, otros inactivos
+    fireEvent.click(btnEspanol);
+    expect(btnEspanol).toHaveClass("bg-violet-500/10");
+    expect(btnIngles).toHaveClass("bg-[#0e0e1a]");
+    expect(btnCualquiera).toHaveClass("bg-[#0e0e1a]");
+
+    // Clic en Inglés -> Inglés activo, Español inactivo (exclusión mutua)
+    fireEvent.click(btnIngles);
+    expect(btnIngles).toHaveClass("bg-violet-500/10");
+    expect(btnEspanol).toHaveClass("bg-[#0e0e1a]");
+    expect(btnCualquiera).toHaveClass("bg-[#0e0e1a]");
+
+    // Clic en Inglés de nuevo -> Todos inactivos, vuelve a Cualquiera
+    fireEvent.click(btnIngles);
+    expect(btnCualquiera).toHaveClass("bg-violet-500/10");
+    expect(btnEspanol).toHaveClass("bg-[#0e0e1a]");
+    expect(btnIngles).toHaveClass("bg-[#0e0e1a]");
+  });
 });

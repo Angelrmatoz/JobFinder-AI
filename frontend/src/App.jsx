@@ -445,7 +445,7 @@ export default function App() {
 
               <div className="flex justify-center gap-5 mt-8 text-xs text-slate-700">
                 <span>✓ Lectura de PDF</span>
-                <span>✓ Conexión LinkedIn & Google</span>
+                <span>✓ Conexión LinkedIn</span>
                 <span>✓ Filtro Cognitivo Gemma</span>
                 <span>✓ Auto-Guardado en Notion</span>
               </div>

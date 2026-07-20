@@ -8,6 +8,7 @@ class CVProfile(BaseModel):
     experience_summary: str = Field(..., description="Concise summary of candidate's professional experience")
     target_roles: List[str] = Field(..., description="Target job titles")
     search_query: str = Field(..., description="Optimized query string for scraping job vacancies, e.g., 'React Developer remote'")
+    location: Optional[str] = Field(default=None, description="Current location of the candidate (e.g. 'Spain' or 'Madrid, Spain')")
 
 class JobMatchResult(BaseModel):
     match_score: int = Field(..., description="Affinity score from 1 to 10 based on CV matching")

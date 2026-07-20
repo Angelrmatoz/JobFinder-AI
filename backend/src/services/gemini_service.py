@@ -2,7 +2,8 @@ from google import genai
 from google.genai import types
 import os
 import json
-from typing import Any
+import re
+from typing import Any, Optional
 from src.schemas.cv import CVProfile, JobMatchResult
 
 # Initialize the Gemini Client. 
@@ -26,6 +27,7 @@ def generate_content_with_fallback(client: genai.Client, contents: str, config: 
         if not model_name:
             continue
         try:
+            print(f"[GEMINI_SERVICE] Trying generation with model: {model_name}", flush=True)
             response = client.models.generate_content(
                 model=model_name,
                 contents=contents,
@@ -33,21 +35,46 @@ def generate_content_with_fallback(client: genai.Client, contents: str, config: 
             )
             return response
         except Exception as e:
-            print(f"Model {model_name} failed: {e}. Trying next fallback...")
+            print(f"[GEMINI_SERVICE] Warning: model {model_name} failed. Error: {str(e)}", flush=True)
             last_error = e
             continue
             
-    raise last_error if last_error else ValueError("No Gemini models configured in fallback chain.")
+    raise RuntimeError(f"All fallback models failed. Last error: {str(last_error)}")
 
-def parse_cv_with_gemma(cv_text: str) -> CVProfile:
+def is_spanish(text: str) -> bool:
+    """Detect if the text is in Spanish based on stopwords."""
+    spanish_indicators = {
+        r"\bde\b", r"\bque\b", r"\by\b", r"\ben\b", r"\bel\b", r"\bla\b", 
+        r"\bpara\b", r"\bcon\b", r"\bdel\b", r"\blos\b", r"\blas\b", 
+        r"\buna\b", r"\buno\b", r"\bcomo\b", r"\btrabajo\b", r"\brequisitos\b",
+        r"\bexperiencia\b", r"\bdesarrollador\b", r"\bdesarrollo\b"
+    }
+    text_lower = text.lower()
+    matches = sum(1 for pattern in spanish_indicators if re.search(pattern, text_lower))
+    return matches >= 2
+
+def is_english(text: str) -> bool:
+    """Detect if the text is in English based on stopwords."""
+    english_indicators = {
+        r"\bthe\b", r"\band\b", r"\bof\b", r"\bto\b", r"\bin\b", r"\bis\b", 
+        r"\byou\b", r"\bfor\b", r"\bwith\b", r"\bexperience\b", r"\brequired\b"
+    }
+    text_lower = text.lower()
+    matches = sum(1 for pattern in english_indicators if re.search(pattern, text_lower))
+    return matches >= 2
+
+def parse_cv_with_gemma(cv_text: str, manual_location: str = None) -> CVProfile:
     """Parse raw CV text using Gemini structured outputs to return CVProfile."""
     client = get_client()
     
     prompt = f"""
     Extract the professional profile from this CV text.
     Analyze the candidate's skills, experience, and target roles.
+    Also extract the candidate's location (city and/or country). 
+    {f"IMPORTANT OVERRIDE: The user has manually specified their location as '{manual_location}'. USE THIS LOCATION instead of the one in the CV." if manual_location else ""}
+    IMPORTANT: Always translate the final location to English (e.g. 'Dominican Republic' instead of 'República Dominicana', or 'Spain' instead of 'España'). If no location is found, set it to null.
     Also generate an optimized search query string to find jobs for this profile.
-    The query should be brief, target roles, and optionally add 'remote' or specific top technologies if relevant (e.g. 'React developer junior remote').
+    The query should be brief and contain only target roles and core technologies. Do not add location or work-mode terms such as 'remote'; those are applied as dedicated search filters.
     
     CV Text:
     {cv_text}
@@ -78,12 +105,54 @@ def parse_cv_with_gemma(cv_text: str) -> CVProfile:
     except Exception as e:
         raise ValueError(f"Failed to parse CV with Gemini: {str(e)}. Response was: {response.text}")
 
-def evaluate_job_match(cv_profile: CVProfile, job_title: str, job_company: str, job_description: str) -> JobMatchResult:
+def evaluate_job_match(
+    cv_profile: CVProfile, 
+    job_title: str, 
+    job_company: str, 
+    job_description: str,
+    job_language: str = "both",
+    workplace_types: Optional[str] = None
+) -> JobMatchResult:
     """Evaluate job affinity to return a match score and quick apply tip."""
+    # Programmatic language checks
+    if job_language == "es" and not is_spanish(job_description):
+        return JobMatchResult(
+            match_score=1,
+            explanation="La oferta de empleo está escrita en otro idioma (no es Español)."
+        )
+    if job_language == "en" and not is_english(job_description):
+        return JobMatchResult(
+            match_score=1,
+            explanation="The job offer is written in another language (not English)."
+        )
+
     client = get_client()
     
+    language_constraint = ""
+    if job_language == "es":
+        language_constraint = "\n- IMPORTANT: The job offer MUST be in Spanish. If it is in English or any other language, assign a match_score of 1 and explain that the language is not Spanish."
+    elif job_language == "en":
+        language_constraint = "\n- IMPORTANT: The job offer MUST be in English. If it is in Spanish or any other language, assign a match_score of 1 and explain that the language is not English."
+
+    workplace_constraint = ""
+    if workplace_types:
+        allowed = [w.strip().lower() for w in workplace_types.split(",")]
+        allowed_terms = []
+        if "remoto" in allowed or "remote" in allowed:
+            allowed_terms.append("Remote")
+        if "hibrido" in allowed or "hybrid" in allowed:
+            allowed_terms.append("Hybrid")
+        if "presencial" in allowed or "on-site" in allowed or "onsite" in allowed:
+            allowed_terms.append("On-site / Presencial")
+            
+        if allowed_terms:
+            allowed_str = " or ".join(allowed_terms)
+            workplace_constraint = f"\n- IMPORTANT: The candidate is ONLY interested in {allowed_str} jobs. If the job description or details indicate a different work modality (e.g., if it requires on-site presence but they only want Remote, or if it says Hybrid but they only want Remote), you MUST assign a match_score of 1 and explain that the work modality does not match."
+        
     prompt = f"""
     Compare the following candidate profile with the job details to calculate a match score (1 to 10) and write a short, highly personalized recommendation/tip (1-2 sentences) on how this candidate can apply to stand out.
+    {language_constraint}
+    {workplace_constraint}
     
     Candidate Profile:
     - Skills: {', '.join(cv_profile.skills)}

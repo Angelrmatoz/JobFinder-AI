@@ -1,6 +1,21 @@
 import React, { useState, useRef, useEffect } from "react";
 import axiosInstance from "axios";
 
+function formatMessage(text) {
+  if (!text) return "";
+  const parts = text.split(/(\*\*.*?\*\*)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return (
+        <strong key={index} className="font-bold text-slate-100">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    return part;
+  });
+}
+
 export default function ChatPanel({ data, API }) {
   const [chat, setChat] = useState([]);
   const [input, setInput] = useState("");
@@ -78,7 +93,7 @@ export default function ChatPanel({ data, API }) {
                   : "bg-slate-800 text-slate-300 border border-slate-700/50"
               }`}
             >
-              {msg.text}
+              {formatMessage(msg.text)}
             </div>
           </div>
         ))}

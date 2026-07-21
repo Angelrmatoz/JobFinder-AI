@@ -44,4 +44,19 @@ describe("ChatPanel Component", () => {
       expect.objectContaining({ question: "Hola, ¿cómo estás?" })
     );
   });
+
+  it("sends message when Enter key is pressed", async () => {
+    render(<ChatPanel data={{}} API="http://localhost:8000" />);
+
+    const input = screen.getByPlaceholderText("Pregunta algo...");
+
+    fireEvent.change(input, { target: { value: "Pregunta via Enter" } });
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+
+    expect(screen.getByText("Pregunta via Enter")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText("Respuesta de la IA")).toBeInTheDocument();
+    });
+  });
 });

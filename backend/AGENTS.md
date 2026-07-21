@@ -56,3 +56,13 @@ Welcome, agent! Read this document carefully before making changes to the Python
   - **Production**: `docker compose up -d --build`
 - In development, the local codebase is mounted to `/app` for hot-reloading.
 - The configuration reads `.env` variables from `backend/.env`. Ensure keys are populated.
+
+### 6. Google Jobs Actor Constraints
+
+- Actor ID: **`johnvc/google-jobs-scraper`**
+- **`datePosted` is NOT supported** in input schema. Do **not** add it to `run_input`. The Apify actor silently ignores unknown params, causing stale results.
+- Date filtering is entirely **programmatic** using helpers in `apify_service.py`:
+  - `_extract_posted_at(item)` — reads age text from `posted_at`, `detected_extensions.posted_at`, or `extensions[]` list.
+  - `_is_within_date_range(posted_text, date_posted)` — parses bilingual (ES/EN) age strings like `"Hace 2 semanas"` / `"3 days ago"`.
+  - If `posted_text` is `None` and a date filter is active (`24h`/`7d`/`30d`), the job is **rejected** to prevent stale results from leaking.
+- **Allowed `country` values**: `"None", "us", "ca", "uk", "de", "fr", "au", "jp", "in", "br", "mx"`. Any other value triggers a schema validation error. Map unsupported countries (e.g. Spain → `"None"`) while keeping the correct `google_domain` (e.g. `google.es`) via `_map_country_and_domain`.

@@ -2,6 +2,8 @@
 
 Este es el servicio del backend para **JobFinder AI**, construido con **FastAPI** (Python 3.10+). Se encarga de procesar los currículums en PDF, extraer texto, estructurar perfiles profesionales, realizar scraping concurrente en motores de búsqueda de empleo (LinkedIn y Google Jobs), evaluar la afinidad mediante LLMs con resiliencia de fallbacks, y almacenar prospectos idóneos en Notion.
 
+> **Google Jobs**: El actor `johnvc/google-jobs-scraper` **no soporta** el parámetro `datePosted`. El filtro de fecha se aplica programáticamente en `apify_service.py` usando `_extract_posted_at` + `_is_within_date_range`. Jobs sin metadata de fecha se descartan automáticamente cuando hay filtro activo (`24h`/`7d`/`30d`).
+
 ---
 
 ## Estructura del Código

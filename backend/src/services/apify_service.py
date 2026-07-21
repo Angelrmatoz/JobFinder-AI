@@ -24,6 +24,131 @@ WORKPLACE_TYPE_VALUES = {
 }
 
 
+def _map_country_and_domain(target_location: Optional[str], job_language: Optional[str]) -> tuple[str, str]:
+    """Map target location or job language to country code and google domain."""
+    country = "us"
+    domain = "google.com"
+
+    loc_lower = (target_location or "").lower()
+
+    if any(k in loc_lower for k in ["spain", "españa", "madrid", "barcelona"]):
+        country = "None"
+        domain = "google.es"
+    elif any(k in loc_lower for k in ["mexico", "méxico"]):
+        country = "mx"
+        domain = "google.com.mx"
+    elif "colombia" in loc_lower:
+        country = "None"
+        domain = "google.com.co"
+    elif "argentina" in loc_lower:
+        country = "None"
+        domain = "google.com.ar"
+    elif "chile" in loc_lower:
+        country = "None"
+        domain = "google.cl"
+    elif any(k in loc_lower for k in ["peru", "perú"]):
+        country = "None"
+        domain = "google.com.pe"
+    elif any(k in loc_lower for k in ["uk", "united kingdom", "london"]):
+        country = "uk"
+        domain = "google.co.uk"
+    elif any(k in loc_lower for k in ["canada", "toronto"]):
+        country = "ca"
+        domain = "google.ca"
+    elif any(k in loc_lower for k in ["brazil", "brasil"]):
+        country = "br"
+        domain = "google.com.br"
+    elif any(k in loc_lower for k in ["france", "paris"]):
+        country = "fr"
+        domain = "google.fr"
+    elif any(k in loc_lower for k in ["germany", "deutschland", "berlin"]):
+        country = "de"
+        domain = "google.de"
+    elif job_language == "es":
+        country = "None"
+        domain = "google.es"
+
+    # Ensure final country code matches the strict allowed list
+    allowed_countries = {"None", "us", "ca", "uk", "de", "fr", "au", "jp", "in", "br", "mx"}
+    if country not in allowed_countries:
+        country = "None"
+
+    return country, domain
+
+
+def _extract_posted_at(item: dict) -> Optional[str]:
+    """Extract age string from item fields."""
+    posted = item.get("posted_at")
+    if posted and isinstance(posted, str):
+        return posted
+
+    detected = item.get("detected_extensions")
+    if isinstance(detected, dict):
+        posted = detected.get("posted_at")
+        if posted and isinstance(posted, str):
+            return posted
+
+    extensions = item.get("extensions") or []
+    if isinstance(extensions, list):
+        for ext in extensions:
+            if isinstance(ext, str):
+                ext_lower = ext.lower()
+                if any(w in ext_lower for w in ["ago", "hace", "hour", "hora", "day", "día", "week", "semana", "month", "mes"]):
+                    return ext
+    return None
+
+
+def _is_within_date_range(posted_text: Optional[str], date_posted: Optional[str]) -> bool:
+    """Check if the job age string is within the requested limit (24h, 7d, 30d)."""
+    if not date_posted or date_posted == "any":
+        return True
+    if not posted_text:
+        return True
+
+    text = posted_text.lower()
+
+    if date_posted == "24h":
+        if any(w in text for w in ["week", "semana", "month", "mes", "year", "año"]):
+            return False
+        day_match = re.search(r'(\d+)\s*(?:day|día)', text)
+        if day_match:
+            days = int(day_match.group(1))
+            return days <= 1
+        return True
+
+    if date_posted == "7d":
+        if any(w in text for w in ["month", "mes", "year", "año"]):
+            return False
+        week_match = re.search(r'(\d+)\s*(?:week|semana)', text)
+        if week_match:
+            weeks = int(week_match.group(1))
+            return weeks <= 1
+        day_match = re.search(r'(\d+)\s*(?:day|día)', text)
+        if day_match:
+            days = int(day_match.group(1))
+            return days <= 7
+        return True
+
+    if date_posted == "30d":
+        if any(w in text for w in ["year", "año"]):
+            return False
+        month_match = re.search(r'(\d+)\s*(?:month|mes)', text)
+        if month_match:
+            months = int(month_match.group(1))
+            return months <= 1
+        week_match = re.search(r'(\d+)\s*(?:week|semana)', text)
+        if week_match:
+            weeks = int(week_match.group(1))
+            return weeks <= 4
+        day_match = re.search(r'(\d+)\s*(?:day|día)', text)
+        if day_match:
+            days = int(day_match.group(1))
+            return days <= 30
+        return True
+
+    return True
+
+
 def _build_resume_keywords(skills: Optional[List[str]]) -> List[dict]:
     """Convert CV skills into Actor resumeKeywords input."""
     seen = set()
@@ -200,6 +325,120 @@ async def scrape_linkedin_jobs(
         return []
 
 
+async def scrape_google_jobs(
+    client: ApifyClientAsync,
+    query: str,
+    limit: int = 5,
+    location_type: Optional[str] = None,
+    date_posted: Optional[str] = None,
+    target_location: Optional[str] = None,
+    workplace_types: Optional[str] = None,
+    resume_skills: Optional[List[str]] = None,
+    target_roles: Optional[List[str]] = None,
+    job_language: Optional[str] = None,
+) -> List[JobDetail]:
+    """Scrape Google jobs using johnvc/google-jobs-scraper actor.
+
+    Maps common advanced filters to maintain parity with LinkedIn scraper.
+    """
+    actor_id = os.getenv("GOOGLE_ACTOR_ID", "johnvc/google-jobs-scraper")
+
+    # Map country and domain
+    country, domain = _map_country_and_domain(target_location, job_language)
+
+    # Build query keywords
+    kws = _build_keywords(query, target_roles, job_language)
+    query_str = " OR ".join(f'"{kw}"' for kw in kws) if kws else query
+
+    # If location is remote, or workplace types only includes remote
+    google_location = ""
+    if location_type == "remote" or (workplace_types == "remoto" or workplace_types == "remote"):
+        google_location = "Remote"
+    elif target_location and target_location.strip():
+        google_location = target_location.strip()
+
+    run_input = {
+        "query": query_str,
+        "country": country,
+        "google_domain": domain,
+        "include_lrad": False,
+        "language": job_language if job_language in ["es", "en"] else "es",
+        "lrad_value": "5",
+        "max_delay": 1,
+        "max_pagination": 1,
+        "num_results": 100,
+        "output_file": "google_jobs_results.json",
+    }
+
+    if google_location:
+        run_input["location"] = google_location
+
+    try:
+        print(f"[APIFY_SERVICE] Calling Apify actor '{actor_id}' with run_input: {run_input}", flush=True)
+        run = await client.actor(actor_id).call(run_input=run_input)
+        print(f"[APIFY_SERVICE] Actor completed. Status: {run.status}. Dataset ID: {run.default_dataset_id}", flush=True)
+        dataset = await client.dataset(run.default_dataset_id).list_items()
+        print(f"[APIFY_SERVICE] Retrieved {len(dataset.items)} items from dataset.", flush=True)
+
+        from src.services.gemini_service import is_spanish, is_english
+
+        jobs = []
+        for item in dataset.items:
+            title = item.get("title") or item.get("jobTitle") or item.get("positionName") or "Posición Desconocida"
+            company = item.get("company_name") or item.get("companyName") or item.get("company") or "Empresa Desconocida"
+            location = item.get("location") or "Remoto / No especificado"
+            description = item.get("description") or item.get("jobDescription") or item.get("descriptionText") or ""
+
+            # Extract link from apply_options list or fallback to top-level link/url
+            apply_options = item.get("apply_options") or []
+            link = ""
+            if apply_options and isinstance(apply_options, list):
+                for option in apply_options:
+                    if isinstance(option, dict) and option.get("link"):
+                        link = option.get("link")
+                        break
+            if not link:
+                link = item.get("link") or item.get("url") or ""
+
+            if not link:
+                continue
+
+            # Programmatically filter out jobs by age/date range early
+            # Google Jobs actor does NOT support datePosted natively, so we must filter here
+            posted_text = _extract_posted_at(item)
+            print(f"[APIFY_SERVICE] Google Job '{title}' posted_at='{posted_text}' (filter={date_posted})", flush=True)
+            if date_posted and date_posted != "any":
+                if not posted_text:
+                    # Cannot determine age; skip to be safe with strict filters
+                    print(f"[APIFY_SERVICE] Skipping '{title}': no posted_at data, cannot verify date filter", flush=True)
+                    continue
+                if not _is_within_date_range(posted_text, date_posted):
+                    print(f"[APIFY_SERVICE] Skipping '{title}': posted_at '{posted_text}' outside {date_posted} range", flush=True)
+                    continue
+
+            # Programmatically filter out wrong language jobs early
+            text_to_check = f"{title} {description}"
+            if job_language == "es" and not is_spanish(text_to_check):
+                continue
+            if job_language == "en" and not is_english(text_to_check):
+                continue
+
+            jobs.append(JobDetail(
+                title=title,
+                company=company,
+                location=location,
+                link=link,
+                description=description[:800],
+                saved_to_notion=False
+            ))
+            if len(jobs) >= limit:
+                break
+        return jobs
+    except Exception as e:
+        print(f"Error scraping Google Jobs: {str(e)}", flush=True)
+        return []
+
+
 async def scrape_jobs_concurrently(
     query: str,
     limit: int = 5,
@@ -211,7 +450,7 @@ async def scrape_jobs_concurrently(
     target_roles: Optional[List[str]] = None,
     job_language: Optional[str] = None,
 ) -> List[JobDetail]:
-    """Scrape LinkedIn jobs and return unified list."""
+    """Scrape LinkedIn and Google jobs concurrently and return unified list."""
     token = os.getenv("APIFY_TOKEN")
     if not token:
         raise ValueError("APIFY_TOKEN environment variable is not configured")
@@ -220,6 +459,18 @@ async def scrape_jobs_concurrently(
 
     results = await asyncio.gather(
         scrape_linkedin_jobs(
+            client=client,
+            query=query,
+            limit=limit,
+            location_type=location_type,
+            date_posted=date_posted,
+            target_location=target_location,
+            workplace_types=workplace_types,
+            resume_skills=resume_skills,
+            target_roles=target_roles,
+            job_language=job_language,
+        ),
+        scrape_google_jobs(
             client=client,
             query=query,
             limit=limit,

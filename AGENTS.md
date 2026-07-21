@@ -11,6 +11,15 @@ JobFinder AI is a Full-Stack application designed to automate job searching:
 2. **Backend**: Python FastAPI service.
 3. **External Integrations**: Google AI Studio (Gemini/Gemma), Apify Platform (LinkedIn & Google Jobs Scrapers), Notion API (Databases).
 
+### Apify Scrapers
+
+| Actor | ID | `datePosted` support |
+|---|---|---|
+| LinkedIn Jobs | `apidojo/linkedin-jobs-scraper` | Native API param |
+| Google Jobs | `johnvc/google-jobs-scraper` | **NOT supported** — programmatic only |
+
+**Google Jobs `country` validation**: only `"None", "us", "ca", "uk", "de", "fr", "au", "jp", "in", "br", "mx"` accepted. Unsupported countries (e.g. Spain, Dominican Republic) must map to `"None"` while keeping the correct `google_domain` (e.g. `google.es`).
+
 ---
 
 ## Coding Rules & Guidelines
@@ -24,6 +33,8 @@ JobFinder AI is a Full-Stack application designed to automate job searching:
    - **Frontend**: Unit tests use Vitest + jsdom. E2E tests use Playwright with intercepted API routes.
 3. **No Placeholders**: Never commit placeholders or incomplete code. Always supply full, operational implementations.
 4. **Resiliency**: The Gemini service implements a fallback chain. Do not hardcode a single model name; use the fallback utility.
+5. **Multilingual & Modality Filtering**: Early language checking (using programmatic stopword helpers) must be enforced before evaluating scraping limits, and strict double-layer modality restrictions (both in scraper API params and Gemini prompts) must be maintained to avoid misclassified jobs receiving high match scores.
+6. **Google Jobs Date Filtering**: Since `johnvc/google-jobs-scraper` ignores `datePosted`, age must be filtered programmatically via `_extract_posted_at` + `_is_within_date_range` in `apify_service.py`. Items with no retrievable age data are rejected when a date filter (`24h`, `7d`, `30d`) is active. Do NOT add `datePosted` to the actor `run_input`.
 
 ---
 

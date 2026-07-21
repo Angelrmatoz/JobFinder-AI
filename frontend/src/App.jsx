@@ -247,6 +247,7 @@ export default function App() {
               <div className="mb-5 border border-slate-800/80 rounded-2xl bg-slate-900/30 overflow-hidden backdrop-blur-sm">
                 <button
                   type="button"
+                  data-testid="filters-toggle"
                   onClick={() => setShowFilters(!showFilters)}
                   className="w-full px-5 py-4 flex items-center justify-between text-sm font-semibold text-slate-200 hover:bg-slate-800/20 transition-colors"
                 >
@@ -265,6 +266,7 @@ export default function App() {
                       <label htmlFor="location-scope-select" className="text-slate-400 font-medium">Filtro Geográfico (Ubicación)</label>
                       <select
                         id="location-scope-select"
+                        data-testid="location-scope-select"
                         value={locationScope}
                         onChange={(e) => {
                           const scope = e.target.value;
@@ -304,6 +306,7 @@ export default function App() {
                       <div className="flex gap-2.5 mt-1">
                         <button
                           type="button"
+                          data-testid="lang-btn-es"
                           onClick={handleToggleSpanish}
                           className={`flex-1 py-2 px-3 rounded-lg border text-center font-medium transition-all ${
                             langSpanish
@@ -315,6 +318,7 @@ export default function App() {
                         </button>
                         <button
                           type="button"
+                          data-testid="lang-btn-en"
                           onClick={handleToggleEnglish}
                           className={`flex-1 py-2 px-3 rounded-lg border text-center font-medium transition-all ${
                             langEnglish
@@ -344,6 +348,7 @@ export default function App() {
                         <label className="text-slate-400 font-medium">Ubicación Manual</label>
                         <input
                           type="text"
+                          data-testid="manual-location-input"
                           value={manualLocation}
                           onChange={(e) => setManualLocation(e.target.value)}
                           placeholder="Ej. Madrid, España / Colombia / London, UK"
@@ -363,6 +368,7 @@ export default function App() {
                       <div className="flex gap-2.5 mt-1">
                         <button
                           type="button"
+                          data-testid="workplace-presencial"
                           disabled={locationScope === "global"}
                           onClick={() => setWorkplaceOnSite(!workplaceOnSite)}
                           className={`flex-1 py-2 px-3 rounded-lg border text-center font-medium transition-all ${

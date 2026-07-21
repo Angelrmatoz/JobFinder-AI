@@ -48,3 +48,24 @@ def test_notion_integration_real():
     
     result = save_job_to_notion(dummy_job)
     assert result is True
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_apify_integration_real():
+    """Prueba de integración real con el API de Apify (Scraping concurrente)."""
+    token = os.getenv("APIFY_TOKEN")
+    if not token or token == "your_apify_token_here":
+        pytest.skip("OMITIDO: APIFY_TOKEN real no configurado en el entorno.")
+
+    from src.services.apify_service import scrape_jobs_concurrently
+
+    # Realizar consulta básica rápida
+    jobs = await scrape_jobs_concurrently(
+        query="React Developer",
+        limit=1,
+        date_posted="24h",
+        job_language="es"
+    )
+
+    assert isinstance(jobs, list)

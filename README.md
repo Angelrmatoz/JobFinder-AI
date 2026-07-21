@@ -9,15 +9,21 @@
 JobFinder AI es una aplicación web Full-Stack diseñada para eliminar la búsqueda manual de empleo. Subes tu currículum en formato PDF desde el frontend; el sistema extrae tu perfil profesional de forma inteligente, busca vacantes reales en internet en tiempo real, las evalúa según su afinidad y guarda automáticamente las mejores opciones en Notion.
 
 **El flujo de procesamiento consiste en:**
-1. **Frontend (React):** Interfaz limpia con componente *Drag & Drop* para subir el archivo PDF del currículum.
+1. **Frontend (React):** Interfaz limpia y premium con componente *Drag & Drop* para subir el archivo PDF del currículum. 
+   - **Exclusividad en Filtros**: El selector geográfico gestiona dinámicamente las modalidades; al elegir la búsqueda "Global / Sin país", se deshabilitan las opciones híbrida y presencial, y se fuerza el formato "Remoto".
+   - **Idiomas Inteligentes**: Los botones de idioma son mutuamente excluyentes (Español o Inglés), y al intentar marcar ambos, se colapsa automáticamente a la opción "Cualquiera" para evitar redundancias.
 2. **Backend (FastAPI):**
    - Recibe el PDF y extrae el texto plano usando la librería `pypdf`.
-   - **Interpretación**: Envía el texto a **Gemini** en Google AI Studio (mediante el SDK `google-genai`) para estructurar el perfil (`CVProfile`) y generar una query de búsqueda optimizada (ej. `"React Developer remote junior"`).
-   - **Scraping (Apify)**: Llama concurrentemente en paralelo a los actores públicos **LinkedIn Jobs Scraper** y **Google Jobs Scraper** para consolidar vacantes.
-   - **Filtro Cognitivo**: Evalúa la afinidad de cada vacante con el perfil del candidato, calcula un *Match Score* (1 a 10) y redacta un consejo para aplicar a cada vacante.
+   - **Interpretación**: Envía el texto a **Gemini** en Google AI Studio (mediante el SDK `google-genai`) para estructurar el perfil (`CVProfile`) y generar una query de búsqueda optimizada.
+   - **Traducción y Búsqueda Multilingüe**: Si se selecciona filtrar por Español, el backend traduce automáticamente los roles de búsqueda del CV a español antes de solicitar a Apify, incrementando las coincidencias de puestos hispanohablantes.
+   - **Scraping (Apify) con Filtro Temprano**: Llama a los actores públicos de Apify. Durante el procesamiento de los resultados, se realiza un descarte de idioma programático basado en stopwords *antes* de aplicar el límite de corte (15 vacantes), asegurando que el listado final se llene únicamente con vacantes del idioma seleccionado.
+   - **Filtro Cognitivo (Doble Capa)**: Evalúa la afinidad de cada vacante mediante Gemini. Si se definió una modalidad estricta (ej: solo remoto) y la descripción del puesto indica que es híbrido o presencial, la IA asignará automáticamente un *Match Score* de `1/10` y descartará la vacante.
    - **Almacenamiento**: Las ofertas con un Match Score mayor a 7 se guardan automáticamente en una base de datos de **Notion** usando `notion-client`.
    - **Resiliencia (Model Fallback)**: Implementa una cadena de reintentos automática (`gemma-4-31b-it` -> `gemma-4-26b-a4b-it` -> `gemini-3.1-flash-lite`) para asegurar la disponibilidad del servicio y mitigar límites de cuotas/RPM.
-   - **Asesor de Carrera**: Permite chatear interactivamente sobre el perfil o las vacantes encontradas mediante un chat integrado.
+   - **Asesor de Carrera**: Permite chatear interactivamente sobre el perfil o las vacantes encontradas mediante un chat integrado con formateador seguro de negritas en Markdown.
+3. **Scraping Dual (LinkedIn + Google Jobs)**:
+    - **LinkedIn** (`apidojo/linkedin-jobs-scraper`): Soporta `datePosted` nativo como parámetro de API.
+    - **Google Jobs** (`johnvc/google-jobs-scraper`): El actor **no** soporta `datePosted` en su schema de entrada. El filtro de fecha se aplica **programáticamente** en backend leyendo el texto de antigüedad (`detected_extensions.posted_at`, `extensions[]`, `posted_at`) en español e inglés (ej. `"Hace 2 semanas"`, `"3 days ago"`). Trabajos sin dato de antigüedad se descartan si hay filtro de fecha activo.
 
 ---
 
@@ -26,7 +32,7 @@ JobFinder AI es una aplicación web Full-Stack diseñada para eliminar la búsqu
 ```
 Lead-Generation-AI/ (JobFinder AI)
 ├── backend/                   # Servidor FastAPI
-│   ├── app/
+│   ├── src/
 │   │   ├── routers/           # Enrutadores de endpoints (jobs.py)
 │   │   ├── schemas/           # Validaciones Pydantic (cv.py)
 │   │   └── services/          # Servicios externos (pdf, gemini, apify, notion)
@@ -38,11 +44,14 @@ Lead-Generation-AI/ (JobFinder AI)
 ├── frontend/                  # Interfaz de Usuario React
 │   ├── src/
 │   │   ├── App.jsx            # Interfaz principal (Drag & Drop + Resultados + Chat)
+│   │   ├── components/        # Badge, ChatPanel, LoadingPulse, ResultsPanel, Section
 │   │   └── index.css
 │   ├── index.html
 │   ├── package.json
 │   └── pnpm-lock.yaml
 │
+├── docker-compose.yml         # Stack completo (producción)
+├── docker-compose.dev.yml     # Stack completo (desarrollo con hot-reload)
 └── README.md
 ```
 
@@ -142,6 +151,36 @@ El frontend modular cuenta con pruebas unitarias, de integración y de extremo a
   # Corre las pruebas E2E
   pnpm test:e2e
   ```
+
+---
+
+## Docker (recomendado)
+
+Puedes levantar el stack completo sin instalar Python ni Node localmente.
+
+### Stack completo
+
+```bash
+# Desarrollo (hot-reload)
+docker compose -f docker-compose.dev.yml up --build
+
+# Producción
+docker compose up -d --build
+```
+
+### Servicios individuales
+
+```bash
+# Solo backend
+cd backend
+docker compose -f docker-compose.dev.yml up --build
+
+# Solo frontend
+cd frontend
+docker compose -f docker-compose.dev.yml up --build
+```
+
+> **Importante:** Asegúrate de que `backend/.env` esté correctamente configurado antes de levantar cualquier servicio.
 
 ---
 

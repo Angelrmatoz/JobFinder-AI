@@ -2,4 +2,9 @@
 name = "lead-generation-ai"
 version = "0.1.0"
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "apify-client==3.1.0",
+    "fastapi==0.140.13",
+    "google-genai==2.14.0",
+    "pip==26.1.2",
+]

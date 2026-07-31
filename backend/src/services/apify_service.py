@@ -76,25 +76,34 @@ def _map_country_and_domain(target_location: Optional[str], job_language: Option
     return country, domain
 
 
-def _extract_posted_at(item: dict) -> Optional[str]:
-    """Extract age string from item fields."""
-    posted = item.get("posted_at")
-    if posted and isinstance(posted, str):
-        return posted
+_DATE_RE = re.compile(
+    r"\d+\s*(?:hours?|horas?|days?|días?|weeks?|semanas?|months?|mes(?:es)?|years?|años?)",
+    re.IGNORECASE,
+)
 
-    detected = item.get("detected_extensions")
-    if isinstance(detected, dict):
-        posted = detected.get("posted_at")
-        if posted and isinstance(posted, str):
-            return posted
+
+def _looks_like_date(text: str) -> bool:
+    """True if the string looks like a relative posting date, not a salary or other noise."""
+    lowered = text.lower()
+    if "ago" in lowered or "hace" in lowered:
+        return True
+    return _DATE_RE.search(lowered) is not None
+
+
+def _extract_posted_at(item: dict) -> Optional[str]:
+    """Extract age string from item fields. Ignores non-date noise (e.g. salary strings)."""
+    for source in (
+        item.get("posted_at"),
+        (item.get("detected_extensions") or {}).get("posted_at"),
+    ):
+        if isinstance(source, str) and _looks_like_date(source):
+            return source
 
     extensions = item.get("extensions") or []
     if isinstance(extensions, list):
         for ext in extensions:
-            if isinstance(ext, str):
-                ext_lower = ext.lower()
-                if any(w in ext_lower for w in ["ago", "hace", "hour", "hora", "day", "día", "week", "semana", "month", "mes"]):
-                    return ext
+            if isinstance(ext, str) and _looks_like_date(ext):
+                return ext
     return None
 
 
@@ -407,12 +416,14 @@ async def scrape_google_jobs(
             # Google Jobs actor does NOT support datePosted natively, so we must filter here
             posted_text = _extract_posted_at(item)
             print(f"[APIFY_SERVICE] Google Job '{title}' posted_at='{posted_text}' (filter={date_posted})", flush=True)
+            date_posted_unknown = False
             if date_posted and date_posted != "any":
                 if not posted_text:
-                    # Cannot determine age; skip to be safe with strict filters
-                    print(f"[APIFY_SERVICE] Skipping '{title}': no posted_at data, cannot verify date filter", flush=True)
-                    continue
-                if not _is_within_date_range(posted_text, date_posted):
+                    # Age unknown: keep the job. Absence of date != outside range,
+                    # and skipping everything the scraper can't date makes Google Jobs useless.
+                    print(f"[APIFY_SERVICE] '{title}': no posted_at data, keeping job (age unknown)", flush=True)
+                    date_posted_unknown = True
+                elif not _is_within_date_range(posted_text, date_posted):
                     print(f"[APIFY_SERVICE] Skipping '{title}': posted_at '{posted_text}' outside {date_posted} range", flush=True)
                     continue
 
@@ -429,7 +440,8 @@ async def scrape_google_jobs(
                 location=location,
                 link=link,
                 description=description[:800],
-                saved_to_notion=False
+                saved_to_notion=False,
+                date_posted_unknown=date_posted_unknown
             ))
             if len(jobs) >= limit:
                 break

@@ -315,6 +315,10 @@ def test_extract_posted_at():
     assert _extract_posted_at({"detected_extensions": {"posted_at": "hace 5 horas"}}) == "hace 5 horas"
     assert _extract_posted_at({"extensions": ["Full-time", "Hace 2 semanas", "USD 3,000"]}) == "Hace 2 semanas"
     assert _extract_posted_at({"extensions": ["Full-time", "USD 3,000"]}) is None
+    # Salarios disfrazados de fecha no deben extraerse
+    assert _extract_posted_at({"posted_at": "3 K por mes"}) is None
+    assert _extract_posted_at({"extensions": ["Full-time", "DOP 80 K por mes", "35 K por mes"]}) is None
+    assert _extract_posted_at({"posted_at": "3 K por mes", "detected_extensions": {"posted_at": "hace 11 días"}}) == "hace 11 días"
 
 
 def test_is_within_date_range():
@@ -348,15 +352,15 @@ def test_is_within_date_range():
     assert _is_within_date_range("Hace 3 meses", "any") is True
     assert _is_within_date_range("Hace 3 meses", None) is True
 
-    # None posted_text con filtro activo (la función devuelve True,
-    # pero el caller en scrape_google_jobs maneja el None rechazándolo)
+    # None posted_text con filtro activo (la función devuelve True;
+    # el caller en scrape_google_jobs conserva el job, fecha desconocida no se rechaza)
     assert _is_within_date_range(None, "24h") is True
     assert _is_within_date_range(None, "any") is True
 
 
 @pytest.mark.asyncio
-async def test_scrape_google_jobs_filters_old_and_unknown_dates():
-    """Validar que Google Jobs descarta trabajos viejos o sin fecha cuando filtro activo."""
+async def test_scrape_google_jobs_filters_old_dates_keeps_unknown():
+    """Validar que Google Jobs descarta trabajos viejos y conserva los sin fecha con filtro activo."""
     mock_client = MagicMock()
     mock_actor = MagicMock()
     mock_run = MagicMock()
@@ -390,6 +394,14 @@ async def test_scrape_google_jobs_filters_old_and_unknown_dates():
             "location": "Remote",
             "apply_options": [{"title": "Web", "link": "https://example.com/job3"}],
             "description": "Un trabajo de programación sin fecha."
+        },
+        {
+            "title": "Salario Como Fecha",
+            "company_name": "Empresa D",
+            "location": "Remote",
+            "apply_options": [{"title": "Web", "link": "https://example.com/job4"}],
+            "description": "Un trabajo de programación con salario.",
+            "posted_at": "3 K por mes"
         }
     ]
     mock_dataset.list_items = AsyncMock(return_value=mock_dataset_items)
@@ -405,6 +417,17 @@ async def test_scrape_google_jobs_filters_old_and_unknown_dates():
         job_language="es"
     )
 
-    # Solo debe pasar "Trabajo Reciente" (3 horas); el viejo y sin fecha se descartan
-    assert len(result) == 1
-    assert result[0].title == "Trabajo Reciente"
+    # Pasan: reciente (3 horas), sin fecha (desconocida) y salario (no es fecha).
+    # Se descarta: el viejo (2 semanas, fuera de 24h).
+    titles = [j.title for j in result]
+    assert len(result) == 3
+    assert "Trabajo Reciente" in titles
+    assert "Trabajo Sin Fecha" in titles
+    assert "Salario Como Fecha" in titles
+    assert "Trabajo Viejo" not in titles
+
+    # Solo los que no pudieron datarse deben marcar la fecha como desconocida
+    by_title = {j.title: j for j in result}
+    assert by_title["Trabajo Reciente"].date_posted_unknown is False
+    assert by_title["Trabajo Sin Fecha"].date_posted_unknown is True
+    assert by_title["Salario Como Fecha"].date_posted_unknown is True

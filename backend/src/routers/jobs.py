@@ -11,6 +11,9 @@ from src.services.notion_service import save_job_to_notion
 
 router = APIRouter()
 
+# Etiquetas legibles para el filtro de fecha usado en las notas de vacantes sin fecha conocida
+DATE_FILTER_LABELS = {"24h": "24 horas", "7d": "1 semana", "30d": "30 días"}
+
 class ChatRequest(BaseModel):
     question: str
     context: str
@@ -102,6 +105,15 @@ async def upload_cv(
                 )
                 job.match_score = match_result.match_score
                 job.apply_tip = match_result.explanation
+
+                # Si la fecha no se pudo determinar (Google Jobs) y hay filtro activo,
+                # avisar al usuario en el propio consejo
+                if job.date_posted_unknown and effective_date_posted in DATE_FILTER_LABELS:
+                    job.apply_tip = (
+                        f"{job.apply_tip} Nota: se aplicó filtro de "
+                        f"{DATE_FILTER_LABELS[effective_date_posted]}, pero no se pudo "
+                        f"determinar la fecha de publicación de esta oferta; se muestra igualmente."
+                    )
                 
                 # Si supera umbral, guardar en Notion
                 if match_result.match_score > 7:

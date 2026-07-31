@@ -138,3 +138,40 @@ def test_upload_cv_low_score_skips_notion(
     # Notion NO debe haberse llamado con puntuación <= 7
     mock_save_notion.assert_not_called()
     assert data["jobs"][0]["saved_to_notion"] is False
+
+
+@patch("src.routers.jobs.extract_text_from_pdf")
+@patch("src.routers.jobs.parse_cv_with_gemma")
+@patch("src.routers.jobs.scrape_jobs_concurrently")
+@patch("src.routers.jobs.evaluate_job_match")
+@patch("src.routers.jobs.save_job_to_notion")
+def test_upload_cv_unknown_date_appends_notice(
+    mock_save_notion,
+    mock_eval_match,
+    mock_scrape_jobs,
+    mock_parse_cv,
+    mock_extract_pdf,
+    client,
+    mock_cv_profile,
+    mock_job_detail
+):
+    """Validar que vacante de Google sin fecha conocida avisa del filtro en el consejo."""
+    mock_extract_pdf.return_value = "Texto extraído del CV"
+    mock_parse_cv.return_value = mock_cv_profile
+    mock_job_detail.date_posted_unknown = True
+    mock_scrape_jobs.return_value = [mock_job_detail]
+
+    from src.schemas.cv import JobMatchResult
+    mock_eval_match.return_value = JobMatchResult(match_score=8, explanation="Tip de prueba")
+    mock_save_notion.return_value = True
+
+    response = client.post(
+        "/api/upload-cv",
+        files={"file": ("mi_cv.pdf", b"fake_pdf_data", "application/pdf")}
+    )
+
+    assert response.status_code == 200
+    tip = response.json()["jobs"][0]["apply_tip"]
+    assert "Tip de prueba" in tip
+    assert "se aplicó filtro de 1 semana" in tip
+    assert "no se pudo determinar la fecha" in tip

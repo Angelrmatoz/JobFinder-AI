@@ -23,6 +23,7 @@ class JobDetail(BaseModel):
     match_score: Optional[int] = Field(default=None, description="Calculated match score (1-10)")
     apply_tip: Optional[str] = Field(default=None, description="Actionable application advice from the AI")
     saved_to_notion: bool = Field(default=False, description="Whether the job has been saved to Notion")
+    date_posted_unknown: bool = Field(default=False, description="True when a date filter was active but the job's posting date could not be determined (Google Jobs)")
 
 class CVProcessResponse(BaseModel):
     profile: CVProfile = Field(..., description="Parsed professional profile from CV")

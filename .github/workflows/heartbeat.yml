@@ -1,0 +1,13 @@
+name: Heartbeat Probe
+
+on:
+  push:
+    branches: [dev, main]
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Signal
+        run: echo "heartbeat works"

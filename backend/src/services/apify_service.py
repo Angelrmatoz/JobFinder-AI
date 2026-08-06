@@ -249,6 +249,29 @@ def _build_keywords(query: str, target_roles: Optional[List[str]], job_language:
     return [cleaned_query]
 
 
+def _role_tokens(target_roles: Optional[List[str]]) -> set:
+    """Derive role tokens from CV target roles (data-driven, never hardcoded).
+
+    Includes both the original role and its Spanish translation so titles in
+    either language overlap. Empty/filtered to single-word noise.
+    """
+    tokens = set()
+    for role in target_roles or []:
+        for form in (role, _translate_role_to_es(role)):
+            for token in re.split(r"[\W_]+", form.casefold()):
+                if len(token) > 2:
+                    tokens.add(token)
+    return tokens
+
+
+def _ts_relevant_title(title: str, tokens: set) -> bool:
+    """Title overlaps CV role tokens. No tokens => keep (filter disabled)."""
+    if not tokens or not title:
+        return True
+    title_tokens = set(t for t in re.split(r"[\W_]+", title.casefold()) if len(t) > 1)
+    return bool(tokens & title_tokens)
+
+
 async def scrape_linkedin_jobs(
     client: ApifyClientAsync,
     query: str,
@@ -308,6 +331,8 @@ async def scrape_linkedin_jobs(
 
         from src.services.gemini_service import is_spanish, is_english
 
+        role_tokens = _role_tokens(target_roles)
+
         jobs = []
         for item in dataset.items:
             title = item.get("jobTitle") or item.get("title") or item.get("positionName") or "Posición Desconocida"
@@ -318,7 +343,12 @@ async def scrape_linkedin_jobs(
             if not link:
                 continue
 
-            # Programmatically filter out wrong language jobs early to avoid filling the limit slots with them
+            # Data-driven relevance filter: job title must overlap CV role tokens.
+            # Drops unrelated feed jobs (e.g. stacked feed) without hardcoding a profession.
+            if not _ts_relevant_title(title, role_tokens):
+                continue
+
+            # Programmatically filter to match language jobs to avoid filling the limit slots with them
             text_to_check = f"{title} {description}"
             if job_language == "es" and not is_spanish(text_to_check):
                 continue
@@ -391,6 +421,8 @@ async def scrape_google_jobs(
 
         from src.services.gemini_service import is_spanish, is_english
 
+        role_tokens = _role_tokens(target_roles)
+
         jobs = []
         for item in dataset.items:
             title = item.get("title") or item.get("jobTitle") or item.get("positionName") or "Posición Desconocida"
@@ -410,6 +442,10 @@ async def scrape_google_jobs(
                 link = item.get("link") or item.get("url") or ""
 
             if not link:
+                continue
+
+            # Data-driven relevance filter: title must overlap CV role tokens.
+            if not _ts_relevant_title(title, role_tokens):
                 continue
 
             # Programmatically filter out jobs by age/date range early

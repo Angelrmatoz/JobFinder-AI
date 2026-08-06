@@ -549,3 +549,4 @@ async def scrape_jobs_concurrently(
             unique_jobs.append(job)
 
     return unique_jobs
+

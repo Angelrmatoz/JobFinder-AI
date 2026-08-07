@@ -69,4 +69,3 @@ def save_job_to_notion(job: JobDetail) -> bool:
     except Exception as e:
         print(f"Failed to save job to Notion: {str(e)}")
         return False
-

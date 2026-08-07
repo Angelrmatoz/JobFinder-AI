@@ -10,6 +10,8 @@ from src.services.apify_service import (
     _map_country_and_domain,
     _extract_posted_at,
     _is_within_date_range,
+    _role_tokens,
+    _ts_relevant_title,
 )
 
 
@@ -431,3 +433,28 @@ async def test_scrape_google_jobs_filters_old_dates_keeps_unknown():
     assert by_title["Trabajo Reciente"].date_posted_unknown is False
     assert by_title["Trabajo Sin Fecha"].date_posted_unknown is True
     assert by_title["Salario Como Fecha"].date_posted_unknown is True
+
+
+def test_title_relevance_filter():
+    """Filtro data-driven: título debe solaparse con tokens de target_roles, nunca hardcodeado."""
+    roles = ["Full-Stack Developer", "Frontend Developer", "Backend Developer", "Web Developer"]
+    tokens = _role_tokens(roles)
+
+    assert "developer" in tokens
+    assert "desarrollador" in tokens
+    assert "fullstack" in tokens or "full" in tokens
+
+    # Dev jobs keep
+    assert _ts_relevant_title("Full Stack Developer Junior", tokens)
+    assert _ts_relevant_title("Desarrollador Frontend", tokens)
+    assert _ts_relevant_title("Backend Engineer", tokens)
+
+    # Unrelated jobs drop
+    assert not _ts_relevant_title("Cajero", tokens)
+    assert not _ts_relevant_title("Abogado", tokens)
+    assert not _ts_relevant_title("Gerente de Mercadeo", tokens)
+    assert not _ts_relevant_title("Community manager", tokens)
+
+    # No roles provided => filter disabled (no orphaned results)
+    assert _ts_relevant_title("Cajero", _role_tokens(None))
+    assert _ts_relevant_title("Cajero", set())

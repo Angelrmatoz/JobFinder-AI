@@ -24,11 +24,13 @@ describe("Frontend Filters UI Interaction", () => {
     expect(btnHibrido).toBeDisabled();
     expect(btnRemoto).toBeDisabled(); // Remoto también está forzado y deshabilitado
 
-    // Input de ubicación manual no debe existir en el DOM en modo global
-    expect(screen.queryByPlaceholderText(/Ej. Madrid, España/i)).not.toBeInTheDocument();
+    // Solo deben existir las dos opciones de ubicación: global y CV
+    const options = Array.from(selectLocation.options).map((option) => option.value);
+    expect(options).toEqual(["global", "cv"]);
+    expect(screen.queryByTestId("manual-location-input")).not.toBeInTheDocument();
   });
 
-  it("debe habilitar Presencial/Híbrido e input manual al cambiar a 'Especificar ubicación manualmente...'", () => {
+  it("no debe ofrecer la opción de ubicación manual", () => {
     render(<App />);
 
     // Expandir el acordeón
@@ -36,26 +38,12 @@ describe("Frontend Filters UI Interaction", () => {
     fireEvent.click(toggleFiltersBtn);
 
     const selectLocation = screen.getByLabelText(/Filtro Geográfico/i);
-    
-    // Cambiar a manual
-    fireEvent.change(selectLocation, { target: { value: "manual" } });
-    expect(selectLocation.value).toBe("manual");
-
-    // Debe aparecer el input de ubicación manual
-    const inputManual = screen.getByPlaceholderText(/Ej. Madrid, España/i);
-    expect(inputManual).toBeInTheDocument();
-
-    // Las modalidades deben estar habilitadas
-    const btnPresencial = screen.getByRole("button", { name: "Presencial" });
-    const btnHibrido = screen.getByRole("button", { name: "Híbrido" });
-    const btnRemoto = screen.getByRole("button", { name: "Remoto" });
-
-    expect(btnPresencial).not.toBeDisabled();
-    expect(btnHibrido).not.toBeDisabled();
-    expect(btnRemoto).not.toBeDisabled();
+    expect(screen.queryByRole("option", { name: /Especificar ubicación manualmente/i })).not.toBeInTheDocument();
+    expect(Array.from(selectLocation.options)).toHaveLength(2);
+    expect(screen.queryByTestId("manual-location-input")).not.toBeInTheDocument();
   });
 
-  it("debe habilitar modalidades pero ocultar input manual al cambiar a 'Usar ubicación de mi CV'", () => {
+  it("debe habilitar modalidades al cambiar a 'Usar ubicación de mi CV'", () => {
     render(<App />);
 
     // Expandir acordeón
@@ -68,9 +56,6 @@ describe("Frontend Filters UI Interaction", () => {
     fireEvent.change(selectLocation, { target: { value: "cv" } });
     expect(selectLocation.value).toBe("cv");
 
-    // No debe mostrar el input de ubicación manual
-    expect(screen.queryByPlaceholderText(/Ej. Madrid, España/i)).not.toBeInTheDocument();
-
     // Las modalidades deben estar habilitadas
     const btnPresencial = screen.getByRole("button", { name: "Presencial" });
     const btnHibrido = screen.getByRole("button", { name: "Híbrido" });
@@ -79,6 +64,8 @@ describe("Frontend Filters UI Interaction", () => {
     expect(btnPresencial).not.toBeDisabled();
     expect(btnHibrido).not.toBeDisabled();
     expect(btnRemoto).not.toBeDisabled();
+    // El input manual ya no existe en ningún modo
+    expect(screen.queryByTestId("manual-location-input")).not.toBeInTheDocument();
   });
 
   it("debe permitir selección exclusiva de Español e Inglés y colapsar a Cualquiera si se desmarcan", () => {

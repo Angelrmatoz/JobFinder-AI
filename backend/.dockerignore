@@ -6,5 +6,12 @@ __pycache__
 .pytest_cache
 .coverage
 htmlcov
+tests
 .git
 .env
+.env.*
+Dockerfile
+.dockerignore
+docker-compose*.yml
+requirements-dev.txt
+*.md

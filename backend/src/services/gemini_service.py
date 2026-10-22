@@ -63,7 +63,7 @@ def is_english(text: str) -> bool:
     matches = sum(1 for pattern in english_indicators if re.search(pattern, text_lower))
     return matches >= 2
 
-def parse_cv_with_gemma(cv_text: str, manual_location: str = None) -> CVProfile:
+def parse_cv_with_gemma(cv_text: str) -> CVProfile:
     """Parse raw CV text using Gemini structured outputs to return CVProfile."""
     client = get_client()
     
@@ -71,7 +71,6 @@ def parse_cv_with_gemma(cv_text: str, manual_location: str = None) -> CVProfile:
     Extract the professional profile from this CV text.
     Analyze the candidate's skills, experience, and target roles.
     Also extract the candidate's location (city and/or country). 
-    {f"IMPORTANT OVERRIDE: The user has manually specified their location as '{manual_location}'. USE THIS LOCATION instead of the one in the CV." if manual_location else ""}
     IMPORTANT: Always translate the final location to English (e.g. 'Dominican Republic' instead of 'República Dominicana', or 'Spain' instead of 'España'). If no location is found, set it to null.
     Also generate an optimized search query string to find jobs for this profile.
     The query should be brief and contain only target roles and core technologies. Do not add location or work-mode terms such as 'remote'; those are applied as dedicated search filters.

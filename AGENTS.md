@@ -13,12 +13,14 @@ JobFinder AI is a Full-Stack application designed to automate job searching:
 
 ### Apify Scrapers
 
-| Actor | ID | `datePosted` support |
-|---|---|---|
-| LinkedIn Jobs | `apidojo/linkedin-jobs-scraper` | Native API param |
-| Google Jobs | `johnvc/google-jobs-scraper` | **NOT supported** — programmatic only |
+Default IDs live in `apify_service.py` and are overridable by env var. Do not hardcode actor IDs elsewhere.
 
-**Google Jobs `country` validation**: only `"None", "us", "ca", "uk", "de", "fr", "au", "jp", "in", "br", "mx"` accepted. Unsupported countries (e.g. Spain, Dominican Republic) must map to `"None"` while keeping the correct `google_domain` (e.g. `google.es`).
+| Actor | Default ID (env override) | Date filtering |
+|---|---|---|
+| LinkedIn Jobs | `valig/linkedin-jobs-scraper` (`LINKEDIN_ACTOR_ID`) | Native API param `datePosted` (`r86400`/`r604800`/`r2592000`) |
+| Google Jobs | `inovaflow/google-jobs-scraper` (`GOOGLE_ACTOR_ID`) | Native API param `postedWithin` (`day`/`3days`/`week`/`month`) |
+
+**Google Jobs `country` validation**: only two-letter Google editions from the actor enum (e.g. `us`, `gb`, `es`, `mx`, `co`, `ar`, `cl`, `de`, `fr`, `au`, `jp`, `in`) are accepted. `_map_country` resolves location/language to a valid code and never sends `"None"`; unsupported countries fall back to `us` (or `es` when the target language is Spanish).
 
 ---
 
@@ -34,7 +36,7 @@ JobFinder AI is a Full-Stack application designed to automate job searching:
 3. **No Placeholders**: Never commit placeholders or incomplete code. Always supply full, operational implementations.
 4. **Resiliency**: The Gemini service implements a fallback chain. Do not hardcode a single model name; use the fallback utility.
 5. **Multilingual & Modality Filtering**: Early language checking (using programmatic stopword helpers) must be enforced before evaluating scraping limits, and strict double-layer modality restrictions (both in scraper API params and Gemini prompts) must be maintained to avoid misclassified jobs receiving high match scores.
-6. **Google Jobs Date Filtering**: Since `johnvc/google-jobs-scraper` ignores `datePosted`, age must be filtered programmatically via `_extract_posted_at` + `_is_within_date_range` in `apify_service.py`. Items with no retrievable age data are rejected when a date filter (`24h`, `7d`, `30d`) is active. Do NOT add `datePosted` to the actor `run_input`.
+6. **Google Jobs Date Filtering**: `inovaflow/google-jobs-scraper` applies `postedWithin` natively (`24h` → `day`, `7d` → `week`, `30d` → `month`). Do NOT add `datePosted` or filter ages programmatically. The actor keeps items with no stated age, so those get `date_posted_unknown = True` for the router notice.
 
 ---
 

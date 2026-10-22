@@ -15,7 +15,6 @@ export default function App() {
   
   const [showFilters, setShowFilters] = useState(false);
   const [locationScope, setLocationScope] = useState("global");
-  const [manualLocation, setManualLocation] = useState("");
   const [datePosted, setDatePosted] = useState("7d");
   const [workplaceOnSite, setWorkplaceOnSite] = useState(false);
   const [workplaceRemote, setWorkplaceRemote] = useState(true);
@@ -127,9 +126,6 @@ export default function App() {
     }
     formData.append("job_language", effectiveJobLang);
     
-    if (locationScope === "manual" && manualLocation.trim()) {
-      formData.append("manual_location", manualLocation.trim());
-    }
     const wt = [];
     if (locationScope === "global") {
       wt.push("remoto");
@@ -281,7 +277,6 @@ export default function App() {
                       >
                         <option value="global">Todo el mundo (Global / Sin país)</option>
                         <option value="cv">Usar ubicación de mi CV</option>
-                        <option value="manual">Especificar ubicación manualmente...</option>
                       </select>
                     </div>
 
@@ -341,21 +336,6 @@ export default function App() {
                         </button>
                       </div>
                     </div>
-
-                    {/* Manual Location Override (Only shown if scope is manual) */}
-                    {locationScope === "manual" && (
-                      <div className="flex flex-col gap-1.5 sm:col-span-2">
-                        <label className="text-slate-400 font-medium">Ubicación Manual</label>
-                        <input
-                          type="text"
-                          data-testid="manual-location-input"
-                          value={manualLocation}
-                          onChange={(e) => setManualLocation(e.target.value)}
-                          placeholder="Ej. Madrid, España / Colombia / London, UK"
-                          className="bg-[#0e0e1a] border border-slate-800 rounded-lg px-3 py-2 text-slate-300 focus:outline-none focus:border-violet-500 transition-colors placeholder-slate-600 animate-fadeIn"
-                        />
-                      </div>
-                    )}
 
                     {/* Workplace Modalidad (Workplace Type badging/pills) */}
                     <div className="flex flex-col gap-1.5 sm:col-span-2">

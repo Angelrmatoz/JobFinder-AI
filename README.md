@@ -22,8 +22,8 @@ JobFinder AI es una aplicación web Full-Stack diseñada para eliminar la búsqu
    - **Resiliencia (Model Fallback)**: Implementa una cadena de reintentos automática (`gemma-4-31b-it` -> `gemma-4-26b-a4b-it` -> `gemini-3.1-flash-lite`) para asegurar la disponibilidad del servicio y mitigar límites de cuotas/RPM.
    - **Asesor de Carrera**: Permite chatear interactivamente sobre el perfil o las vacantes encontradas mediante un chat integrado con formateador seguro de negritas en Markdown.
 3. **Scraping Dual (LinkedIn + Google Jobs)**:
-    - **LinkedIn** (`apidojo/linkedin-jobs-scraper`): Soporta `datePosted` nativo como parámetro de API.
-    - **Google Jobs** (`johnvc/google-jobs-scraper`): El actor **no** soporta `datePosted` en su schema de entrada. El filtro de fecha se aplica **programáticamente** en backend leyendo el texto de antigüedad (`detected_extensions.posted_at`, `extensions[]`, `posted_at`) en español e inglés (ej. `"Hace 2 semanas"`, `"3 days ago"`). Trabajos sin dato de antigüedad se descartan si hay filtro de fecha activo.
+    - **LinkedIn** (`valig/linkedin-jobs-scraper`): Soporta `datePosted` nativo como parámetro de API.
+    - **Google Jobs** (`inovaflow/google-jobs-scraper`): Soporta `postedWithin` nativo (`day`/`3days`/`week`/`month`). Los trabajos sin antigüedad declarada se conservan y se marcan como fecha desconocida.
 
 ---
 

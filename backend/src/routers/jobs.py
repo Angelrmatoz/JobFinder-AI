@@ -23,7 +23,6 @@ async def upload_cv(
     file: UploadFile = File(...),
     location_scope: Optional[str] = Form(None),
     date_posted: Optional[str] = Form(None),
-    manual_location: Optional[str] = Form(None),
     workplace_types: Optional[str] = Form(None),
     job_language: Optional[str] = Form(None),
 ):
@@ -39,7 +38,7 @@ async def upload_cv(
         raise HTTPException(status_code=400, detail="Solo se admiten archivos PDF.")
         
     try:
-        print(f"[JOBS_ROUTER] upload_cv: location_scope={location_scope}, date_posted={date_posted}, manual_location={manual_location}, workplace_types={workplace_types}, job_language={job_language}", flush=True)
+        print(f"[JOBS_ROUTER] upload_cv: location_scope={location_scope}, date_posted={date_posted}, workplace_types={workplace_types}, job_language={job_language}", flush=True)
         # 1. Leer y extraer texto
         pdf_bytes = await file.read()
         cv_text = extract_text_from_pdf(pdf_bytes)
@@ -49,8 +48,7 @@ async def upload_cv(
             
         # 2. Interpretar CV con Gemini
         print("[JOBS_ROUTER] Parsing CV text with Gemini...", flush=True)
-        active_manual_location = manual_location if location_scope == "manual" else None
-        profile = await asyncio.to_thread(parse_cv_with_gemma, cv_text, active_manual_location)
+        profile = await asyncio.to_thread(parse_cv_with_gemma, cv_text)
         print(f"[JOBS_ROUTER] Parsed CV profile: {profile}", flush=True)
         
         # Determine filters with defaults
@@ -63,9 +61,6 @@ async def upload_cv(
             effective_workplace_types = "remoto"
         elif location_scope == "cv":
             target_loc = profile.location
-            effective_workplace_types = workplace_types
-        elif location_scope == "manual":
-            target_loc = profile.location if manual_location and manual_location.strip() else None
             effective_workplace_types = workplace_types
         else:
             target_loc = None

@@ -178,10 +178,22 @@ test.describe("JobFinder AI — Filters Panel E2E", () => {
     expect(optionValues).toEqual(["global", "cv"]);
     await expect(page.getByTestId("manual-location-input")).toHaveCount(0);
 
-    // CV scope enables Presencial and Híbrido
+    // CV scope enables every modality, including "Cualquier modalidad"
     await locationSelect.selectOption("cv");
     const presencialBtn = page.getByTestId("workplace-presencial");
+    const anyBtn = page.getByTestId("workplace-any");
     await expect(presencialBtn).toBeEnabled();
+    await expect(anyBtn).toBeEnabled();
+
+    // "Cualquier modalidad" clears the specific selection
+    await anyBtn.click();
+    await expect(anyBtn).toHaveClass(/border-violet-500/);
+    await expect(page.getByTestId("workplace-remote")).not.toHaveClass(/border-violet-500/);
+
+    // Picking a specific modality deactivates "Cualquier modalidad"
+    await page.getByTestId("workplace-remote").click();
+    await expect(page.getByTestId("workplace-remote")).toHaveClass(/border-violet-500/);
+    await expect(anyBtn).not.toHaveClass(/border-violet-500/);
   });
 
   test("should enforce mutual exclusion between Spanish and English language buttons", async ({ page }) => {

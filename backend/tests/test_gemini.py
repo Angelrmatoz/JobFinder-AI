@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 from src.services.gemini_service import parse_cv_with_gemma, evaluate_job_match, get_client
 from src.schemas.cv import CVProfile, JobMatchResult
 
@@ -130,6 +130,60 @@ def test_generate_content_with_fallback_raises_when_all_fail():
     }):
         with pytest.raises(RuntimeError, match="All fallback models failed"):
             generate_content_with_fallback(mock_client, "prompt", config=None)
+
+
+def test_generate_content_with_fallback_retries_transient_error():
+    """Un 503 transitorio se reintenta en el mismo modelo antes de rendirse."""
+    from google.genai import errors
+    from src.services.gemini_service import generate_content_with_fallback
+
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_client.models.generate_content.side_effect = [
+        errors.APIError(503, {"error": {"status": "UNAVAILABLE", "message": "busy"}}),
+        mock_response,
+    ]
+
+    env = {
+        "GEMINI_API_KEY": "key",
+        "GEMINI_MODEL": "model-1",
+        "GEMINI_MODEL_FALLBACK_1": "",
+        "GEMINI_MODEL_FALLBACK_2": "",
+    }
+    with patch.dict("os.environ", env, clear=True), \
+         patch("src.services.gemini_service.time.sleep") as mock_sleep:
+        result = generate_content_with_fallback(mock_client, "prompt", config=None)
+
+    assert result is mock_response
+    assert mock_client.models.generate_content.call_count == 2
+    mock_sleep.assert_called_once_with(1.0)
+
+
+def test_generate_content_with_fallback_uses_exponential_backoff():
+    """Si el error persiste, agota 3 intentos con esperas de 1s y 2s."""
+    from google.genai import errors
+    from src.services.gemini_service import generate_content_with_fallback
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = [
+        errors.APIError(503, {"error": {"status": "UNAVAILABLE", "message": "busy"}}),
+        errors.APIError(503, {"error": {"status": "UNAVAILABLE", "message": "busy"}}),
+        errors.APIError(503, {"error": {"status": "UNAVAILABLE", "message": "busy"}}),
+    ]
+
+    env = {
+        "GEMINI_API_KEY": "key",
+        "GEMINI_MODEL": "model-1",
+        "GEMINI_MODEL_FALLBACK_1": "",
+        "GEMINI_MODEL_FALLBACK_2": "",
+    }
+    with patch.dict("os.environ", env, clear=True), \
+         patch("src.services.gemini_service.time.sleep") as mock_sleep:
+        with pytest.raises(RuntimeError, match="All fallback models failed"):
+            generate_content_with_fallback(mock_client, "prompt", config=None)
+
+    assert mock_client.models.generate_content.call_count == 3
+    assert mock_sleep.call_args_list == [call(1.0), call(2.0)]
 
 
 def test_is_spanish_and_is_english_stopwords():

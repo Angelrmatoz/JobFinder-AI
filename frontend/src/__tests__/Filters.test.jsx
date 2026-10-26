@@ -19,10 +19,12 @@ describe("Frontend Filters UI Interaction", () => {
     const btnPresencial = screen.getByRole("button", { name: "Presencial" });
     const btnHibrido = screen.getByRole("button", { name: "Híbrido" });
     const btnRemoto = screen.getByRole("button", { name: "Remoto" });
+    const btnCualquierModalidad = screen.getByRole("button", { name: "Cualquier modalidad" });
 
     expect(btnPresencial).toBeDisabled();
     expect(btnHibrido).toBeDisabled();
     expect(btnRemoto).toBeDisabled(); // Remoto también está forzado y deshabilitado
+    expect(btnCualquierModalidad).toBeDisabled(); // Global no permite elegir modalidad
 
     // Solo deben existir las dos opciones de ubicación: global y CV
     const options = Array.from(selectLocation.options).map((option) => option.value);
@@ -60,12 +62,45 @@ describe("Frontend Filters UI Interaction", () => {
     const btnPresencial = screen.getByRole("button", { name: "Presencial" });
     const btnHibrido = screen.getByRole("button", { name: "Híbrido" });
     const btnRemoto = screen.getByRole("button", { name: "Remoto" });
+    const btnCualquierModalidad = screen.getByRole("button", { name: "Cualquier modalidad" });
 
     expect(btnPresencial).not.toBeDisabled();
     expect(btnHibrido).not.toBeDisabled();
     expect(btnRemoto).not.toBeDisabled();
+    expect(btnCualquierModalidad).not.toBeDisabled();
     // El input manual ya no existe en ningún modo
     expect(screen.queryByTestId("manual-location-input")).not.toBeInTheDocument();
+  });
+
+  it("'Cualquier modalidad' limpia las modalidades y se desactiva al elegir una específica", () => {
+    render(<App />);
+
+    const toggleFiltersBtn = screen.getByRole("button", { name: /Filtros de Búsqueda Avanzados/i });
+    fireEvent.click(toggleFiltersBtn);
+
+    const selectLocation = screen.getByLabelText(/Filtro Geográfico/i);
+    fireEvent.change(selectLocation, { target: { value: "cv" } });
+
+    const btnPresencial = screen.getByRole("button", { name: "Presencial" });
+    const btnHibrido = screen.getByRole("button", { name: "Híbrido" });
+    const btnRemoto = screen.getByRole("button", { name: "Remoto" });
+    const btnCualquierModalidad = screen.getByRole("button", { name: "Cualquier modalidad" });
+
+    // Remoto está activo por defecto; "Cualquier modalidad" no
+    expect(btnRemoto).toHaveClass("bg-violet-500/10");
+    expect(btnCualquierModalidad).not.toHaveClass("bg-violet-500/10");
+
+    // Al elegir cualquier modalidad se limpian las específicas
+    fireEvent.click(btnCualquierModalidad);
+    expect(btnCualquierModalidad).toHaveClass("bg-violet-500/10");
+    expect(btnPresencial).not.toHaveClass("bg-violet-500/10");
+    expect(btnHibrido).not.toHaveClass("bg-violet-500/10");
+    expect(btnRemoto).not.toHaveClass("bg-violet-500/10");
+
+    // Al elegir una específica, "Cualquier modalidad" se desactiva
+    fireEvent.click(btnHibrido);
+    expect(btnHibrido).toHaveClass("bg-violet-500/10");
+    expect(btnCualquierModalidad).not.toHaveClass("bg-violet-500/10");
   });
 
   it("debe permitir selección exclusiva de Español e Inglés y colapsar a Cualquiera si se desmarcan", () => {

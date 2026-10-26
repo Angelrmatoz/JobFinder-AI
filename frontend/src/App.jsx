@@ -22,6 +22,7 @@ export default function App() {
   const [langSpanish, setLangSpanish] = useState(false);
   const [langEnglish, setLangEnglish] = useState(false);
   const [langAny, setLangAny] = useState(true);
+  const workplaceAny = !workplaceOnSite && !workplaceRemote && !workplaceHybrid;
   
   const fileInputRef = useRef(null);
 
@@ -345,7 +346,7 @@ export default function App() {
                           <span className="text-[10px] text-violet-400/80 animate-pulse font-medium">Búsqueda global limitada a Remoto</span>
                         )}
                       </label>
-                      <div className="flex gap-2.5 mt-1">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-1">
                         <button
                           type="button"
                           data-testid="workplace-presencial"
@@ -363,6 +364,7 @@ export default function App() {
                         </button>
                         <button
                           type="button"
+                          data-testid="workplace-hybrid"
                           disabled={locationScope === "global"}
                           onClick={() => setWorkplaceHybrid(!workplaceHybrid)}
                           className={`flex-1 py-2 px-3 rounded-lg border text-center font-medium transition-all ${
@@ -377,6 +379,7 @@ export default function App() {
                         </button>
                         <button
                           type="button"
+                          data-testid="workplace-remote"
                           disabled={locationScope === "global"}
                           onClick={() => setWorkplaceRemote(!workplaceRemote)}
                           className={`flex-1 py-2 px-3 rounded-lg border text-center font-medium transition-all ${
@@ -388,6 +391,25 @@ export default function App() {
                           }`}
                         >
                           Remoto
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="workplace-any"
+                          disabled={locationScope === "global"}
+                          onClick={() => {
+                            setWorkplaceOnSite(false);
+                            setWorkplaceRemote(false);
+                            setWorkplaceHybrid(false);
+                          }}
+                          className={`flex-1 py-2 px-3 rounded-lg border text-center font-medium transition-all ${
+                            locationScope === "global"
+                              ? "bg-[#0c0c16]/30 border-slate-900/40 text-slate-700 cursor-not-allowed"
+                              : workplaceAny
+                              ? "bg-violet-500/10 border-violet-500 text-violet-300 shadow-[0_0_10px_rgba(139,92,246,0.1)]"
+                              : "bg-[#0e0e1a] border-slate-800/60 text-slate-500 hover:text-slate-350 hover:border-slate-700"
+                          }`}
+                        >
+                          Cualquier modalidad
                         </button>
                       </div>
                     </div>

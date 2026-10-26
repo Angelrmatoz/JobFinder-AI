@@ -23,6 +23,7 @@ Welcome, agent! Read this document carefully before making changes to the Python
   from src.services.gemini_service import generate_content_with_fallback
   # This tries GEMINI_MODEL -> GEMINI_MODEL_FALLBACK_1 -> GEMINI_MODEL_FALLBACK_2 sequentially
   ```
+- **Transient errors**: the wrapper retries HTTP `429`/`5xx` up to 3 attempts per model with exponential backoff (`1s`, `2s`). Non-transient errors skip to the next model immediately.
 - **Gemini Free-Tier Rate Limits**: The free tier of Gemini has a limit of **15 Requests Per Minute (RPM)**. 
   - To prevent HTTP 429 errors in real integration tests, we enforce a **4-second sleep** (`time.sleep(4)`) between API requests in [test_integration_real.py](file:///c:/Dev/Lead-Generation-AI/backend/tests/test_integration_real.py). Maintain this.
 

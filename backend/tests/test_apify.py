@@ -5,11 +5,9 @@ from src.services.apify_service import (
     scrape_google_jobs,
     scrape_jobs_concurrently,
     _build_keywords,
-    _build_work_types,
-    _build_resume_keywords,
-    _map_country_and_domain,
-    _extract_posted_at,
-    _is_within_date_range,
+    _build_workplace_params,
+    _map_country,
+    COUNTRY_KEYWORDS,
     _role_tokens,
     _ts_relevant_title,
 )
@@ -31,7 +29,7 @@ async def test_scrape_linkedin_jobs_success():
             "title": "React Engineer",
             "companyName": "Globex",
             "location": "Madrid",
-            "jobUrl": "https://linkedin.com/job/1"
+            "url": "https://linkedin.com/job/1"
         }
     ]
     mock_dataset.list_items = AsyncMock(return_value=mock_dataset_items)
@@ -44,7 +42,7 @@ async def test_scrape_linkedin_jobs_success():
     assert result[0].company == "Globex"
     assert result[0].link == "https://linkedin.com/job/1"
 
-    mock_client.actor.assert_called_once_with("cheap_scraper/linkedin-job-scraper")
+    mock_client.actor.assert_called_once_with("valig/linkedin-jobs-scraper")
     mock_actor.call.assert_called_once()
 
 
@@ -76,7 +74,7 @@ async def test_scrape_jobs_concurrently_success():
 
 @pytest.mark.asyncio
 async def test_scrape_linkedin_jobs_filters():
-    """Validar que los filtros nativos del actor se construyan correctamente."""
+    """Validar que los filtros del actor se construyan correctamente (un run por rol)."""
     mock_client = MagicMock()
     mock_actor = MagicMock()
     mock_actor.call = AsyncMock(return_value=MagicMock(default_dataset_id="dataset_lnk", status="SUCCEEDED"))
@@ -100,23 +98,22 @@ async def test_scrape_linkedin_jobs_filters():
         target_roles=["Python Developer", "Backend Developer"],
     )
 
-    call_args = mock_actor.call.call_args
-    run_input = call_args[1]["run_input"]
+    run_inputs = [c.kwargs["run_input"] for c in mock_actor.call.call_args_list]
+    assert [r["keywords"] for r in run_inputs] == ["Python Developer", "Backend Developer"]
 
-    assert run_input["keyword"] == ["Python Developer", "Backend Developer"]
-    assert run_input["publishedAt"] == "r86400"
-    assert run_input["locations"] == ["Spain"]
-    assert run_input["workType"] == ["on-site", "hybrid"]
-    assert run_input["resumeKeywords"] == [
-        {"keyword": "Python"},
-        {"keyword": "Docker"},
-    ]
-    assert "startUrls" not in run_input
+    for run_input in run_inputs:
+        assert run_input["datePosted"] == "r86400"
+        assert run_input["location"] == "Spain"
+        assert run_input["urlParam"] == [{"key": "f_WT", "value": "1,3"}]
+        assert run_input["limit"] == 25
+        assert "resumeKeywords" not in run_input
+        assert "workType" not in run_input
+        assert "startUrls" not in run_input
 
 
 @pytest.mark.asyncio
 async def test_scrape_linkedin_jobs_remote_filter():
-    """Validar que location_type='remote' aplique workType=['remote']."""
+    """Validar que location_type='remote' envíe f_WT=2."""
     mock_client = MagicMock()
     mock_actor = MagicMock()
     mock_actor.call = AsyncMock(return_value=MagicMock(default_dataset_id="ds", status="SUCCEEDED"))
@@ -138,13 +135,13 @@ async def test_scrape_linkedin_jobs_remote_filter():
 
     call_args = mock_actor.call.call_args
     run_input = call_args[1]["run_input"]
-    assert run_input["workType"] == ["remote"]
-    assert run_input["locations"] == ["Dominican Republic"]
+    assert run_input["urlParam"] == [{"key": "f_WT", "value": "2"}]
+    assert run_input["location"] == "Dominican Republic"
 
 
 @pytest.mark.asyncio
 async def test_scrape_linkedin_jobs_any_date():
-    """Validar que date_posted='any' no añada publishedAt."""
+    """Validar que date_posted='any' no añada datePosted."""
     mock_client = MagicMock()
     mock_actor = MagicMock()
     mock_actor.call = AsyncMock(return_value=MagicMock(default_dataset_id="ds", status="SUCCEEDED"))
@@ -165,12 +162,12 @@ async def test_scrape_linkedin_jobs_any_date():
 
     call_args = mock_actor.call.call_args
     run_input = call_args[1]["run_input"]
-    assert "publishedAt" not in run_input
+    assert "datePosted" not in run_input
 
 
 @pytest.mark.asyncio
 async def test_scrape_linkedin_jobs_all_workplace_types():
-    """Validar que seleccionar las 3 modalidades envíe las 3 al actor."""
+    """Validar que seleccionar las 3 modalidades envíe los 3 códigos f_WT."""
     mock_client = MagicMock()
     mock_actor = MagicMock()
     mock_actor.call = AsyncMock(return_value=MagicMock(default_dataset_id="ds", status="SUCCEEDED"))
@@ -193,8 +190,37 @@ async def test_scrape_linkedin_jobs_all_workplace_types():
 
     call_args = mock_actor.call.call_args
     run_input = call_args[1]["run_input"]
-    assert run_input["workType"] == ["on-site", "remote", "hybrid"]
-    assert run_input["locations"] == ["Dominican Republic"]
+    assert run_input["urlParam"] == [{"key": "f_WT", "value": "1,2,3"}]
+    assert run_input["location"] == "Dominican Republic"
+
+
+@pytest.mark.asyncio
+async def test_scrape_linkedin_jobs_dedupes_across_roles():
+    """Dos búsquedas de rol que devuelven la misma vacante no deben duplicarla."""
+    mock_client = MagicMock()
+    mock_actor = MagicMock()
+    mock_actor.call = AsyncMock(return_value=MagicMock(default_dataset_id="ds", status="SUCCEEDED"))
+    mock_client.actor.return_value = mock_actor
+
+    mock_dataset = MagicMock()
+    mock_dataset_items = MagicMock()
+    mock_dataset_items.items = [
+        {"title": "React Developer", "companyName": "A", "url": "https://linkedin.com/job/1"},
+        {"title": "React Developer", "companyName": "B", "url": "https://linkedin.com/job/2"},
+    ]
+    mock_dataset.list_items = AsyncMock(return_value=mock_dataset_items)
+    mock_client.dataset.return_value = mock_dataset
+
+    result = await scrape_linkedin_jobs(
+        client=mock_client,
+        query="Developer",
+        limit=10,
+        target_roles=["Frontend Developer", "Backend Developer"],
+    )
+
+    links = [j.link for j in result]
+    assert links == ["https://linkedin.com/job/1", "https://linkedin.com/job/2"]
+    assert mock_actor.call.call_count == 2
 
 
 def test_build_keywords_with_roles():
@@ -218,19 +244,13 @@ def test_build_keywords_strips_work_mode():
     assert "React" in result[0]
 
 
-def test_build_work_types():
-    """Mapeo correcto de modalidades a valores del actor."""
-    assert _build_work_types("remote", None) == ["remote"]
-    assert _build_work_types("local", "presencial,remoto") == ["on-site", "remote"]
-    assert _build_work_types("local", "hibrido") == ["hybrid"]
-    assert _build_work_types("both", "") == []
-    assert _build_work_types("both", None) == []
-
-
-def test_build_resume_keywords_dedup():
-    """Skills deben ser deduplicados (case-insensitive) y sin vacíos."""
-    result = _build_resume_keywords(["Python", "python", "Docker", "", "docker"])
-    assert result == [{"keyword": "Python"}, {"keyword": "Docker"}]
+def test_build_workplace_params():
+    """Mapeo correcto de modalidades al parámetro f_WT de LinkedIn."""
+    assert _build_workplace_params("remote", None) == [{"key": "f_WT", "value": "2"}]
+    assert _build_workplace_params("local", "presencial,remoto") == [{"key": "f_WT", "value": "1,2"}]
+    assert _build_workplace_params("local", "hibrido") == [{"key": "f_WT", "value": "3"}]
+    assert _build_workplace_params("both", "") == []
+    assert _build_workplace_params("both", None) == []
 
 
 @pytest.mark.asyncio
@@ -247,14 +267,17 @@ async def test_scrape_google_jobs_success():
     mock_dataset_items.items = [
         {
             "title": "Desarrollador de Datos",
-            "company_name": "Acme Corp",
-            "location": "Remote",
-            "apply_options": [
-                {"title": "LinkedIn", "link": "https://linkedin.com/job/goog1"},
-                {"title": "Company Site", "link": "https://careers.acme.com/goog1"}
+            "company": "Acme Corp",
+            "location": "Madrid, Spain",
+            "isRemote": False,
+            "postedAt": "2026-10-20",
+            "ageDays": 0,
+            "applyUrl": "https://linkedin.com/job/goog1",
+            "applyOptions": [
+                {"source": "LinkedIn", "url": "https://linkedin.com/job/goog1"},
+                {"source": "Company Site", "url": "https://careers.acme.com/goog1"}
             ],
-            "description": "Requisitos para el trabajo de datos.",
-            "detected_extensions": {"posted_at": "hace 2 horas"}
+            "description": "Requisitos para el trabajo de datos."
         }
     ]
     mock_dataset.list_items = AsyncMock(return_value=mock_dataset_items)
@@ -274,101 +297,75 @@ async def test_scrape_google_jobs_success():
     assert result[0].title == "Desarrollador de Datos"
     assert result[0].company == "Acme Corp"
     assert result[0].link == "https://linkedin.com/job/goog1"
-    assert result[0].location == "Remote"
+    assert result[0].location == "Madrid, Spain"
+    assert result[0].date_posted_unknown is False
 
-    mock_client.actor.assert_called_once_with("johnvc/google-jobs-scraper")
+    mock_client.actor.assert_called_once_with("inovaflow/google-jobs-scraper")
     mock_actor.call.assert_called_once()
-    
+
     call_args = mock_actor.call.call_args
     run_input = call_args[1]["run_input"]
-    assert run_input["query"] == '"Data Ingeniero"'
-    assert run_input["country"] == "None"
-    assert run_input["google_domain"] == "google.es"
-    assert run_input["location"] == "Remote"
+    assert run_input["queries"] == ["Data Ingeniero"]
+    assert run_input["country"] == "es"
+    assert run_input["locations"] == ["Spain"]
+    assert run_input["postedWithin"] == "day"
+    assert run_input["remoteOnly"] is True
+    assert run_input["maxJobsPerQuery"] == 25
+    assert run_input["language"] == "es"
+    assert run_input["maxApplyOptions"] == 1
+    # Params de otros actores no deben enviarse
+    assert "countryCode" not in run_input
     assert "datePosted" not in run_input
 
 
-def test_map_country_and_domain():
-    """Validar mapeo correcto de país y dominio de Google a partir de ubicación/idioma."""
-    # Ubicación en España
-    country, domain = _map_country_and_domain("Madrid, Spain", "es")
-    assert country == "None"
-    assert domain == "google.es"
-
-    # Ubicación en México
-    country, domain = _map_country_and_domain("Ciudad de México", "es")
-    assert country == "mx"
-    assert domain == "google.com.mx"
-
-    # Idioma español sin ubicación específica
-    country, domain = _map_country_and_domain(None, "es")
-    assert country == "None"
-    assert domain == "google.es"
-
-    # Por defecto (inglés, EE. UU.)
-    country, domain = _map_country_and_domain(None, "en")
-    assert country == "us"
-    assert domain == "google.com"
-
-
-def test_extract_posted_at():
-    """Validar extracción correcta del texto de fecha de publicación."""
-    assert _extract_posted_at({"posted_at": "3 days ago"}) == "3 days ago"
-    assert _extract_posted_at({"detected_extensions": {"posted_at": "hace 5 horas"}}) == "hace 5 horas"
-    assert _extract_posted_at({"extensions": ["Full-time", "Hace 2 semanas", "USD 3,000"]}) == "Hace 2 semanas"
-    assert _extract_posted_at({"extensions": ["Full-time", "USD 3,000"]}) is None
-    # Salarios disfrazados de fecha no deben extraerse
-    assert _extract_posted_at({"posted_at": "3 K por mes"}) is None
-    assert _extract_posted_at({"extensions": ["Full-time", "DOP 80 K por mes", "35 K por mes"]}) is None
-    assert _extract_posted_at({"posted_at": "3 K por mes", "detected_extensions": {"posted_at": "hace 11 días"}}) == "hace 11 días"
+def test_map_country():
+    """Validar mapeo del país (edición de Google) a partir de ubicación/idioma."""
+    assert _map_country("Madrid, Spain", "es") == "es"
+    assert _map_country("Ciudad de México", "es") == "mx"
+    assert _map_country("Bogotá, Colombia", "es") == "co"
+    assert _map_country("London, UK", "en") == "gb"
+    assert _map_country(None, "es") == "es"
+    assert _map_country(None, "en") == "us"
+    # "Ukraine" no debe confundirse con el Reino Unido
+    assert _map_country("Kyiv, Ukraine", "en") == "us"
+    # "India" no debe coincidir con "Indiana"
+    assert _map_country("Indianapolis, Indiana", "en") == "us"
+    # "New Mexico" no debe coincidir con México
+    assert _map_country("New Mexico, USA", "en") == "us"
+    # "Northern Ireland" es Reino Unido, no Irlanda
+    assert _map_country("Belfast, Northern Ireland", "en") == "gb"
+    assert _map_country("Dublin, Ireland", "en") == "ie"
+    # Cobertura de las 47 ediciones: ciudades que antes caían al fallback
+    assert _map_country("Lisbon, Portugal", "en") == "pt"
+    assert _map_country("Amsterdam, Netherlands", "en") == "nl"
+    assert _map_country("Dubai, UAE", "en") == "ae"
+    assert _map_country("Buenos Aires, Argentina", "es") == "ar"
+    assert _map_country("Santiago, Chile", "es") == "cl"
+    assert _map_country("Seoul, South Korea", "en") == "kr"
+    assert _map_country("Munich, Germany", "en") == "de"
+    assert _map_country("Milan, Italy", "en") == "it"
+    assert _map_country("Auckland, New Zealand", "en") == "nz"
+    assert _map_country("Santiago, Dominican Republic", "es") == "es"
 
 
-def test_is_within_date_range():
-    """Validar filtrado programático de vacantes según su antigüedad."""
-    # Filtro 24h
-    assert _is_within_date_range("12 hours ago", "24h") is True
-    assert _is_within_date_range("hace 5 horas", "24h") is True
-    assert _is_within_date_range("1 day ago", "24h") is True
-    assert _is_within_date_range("hace 1 día", "24h") is True
-    assert _is_within_date_range("2 days ago", "24h") is False
-    assert _is_within_date_range("hace 3 días", "24h") is False
-    assert _is_within_date_range("Hace 2 semanas", "24h") is False
-
-    # Filtro 7d
-    assert _is_within_date_range("5 days ago", "7d") is True
-    assert _is_within_date_range("hace 6 días", "7d") is True
-    assert _is_within_date_range("Hace 1 semana", "7d") is True
-    assert _is_within_date_range("1 week ago", "7d") is True
-    assert _is_within_date_range("Hace 2 semanas", "7d") is False
-    assert _is_within_date_range("hace 1 mes", "7d") is False
-
-    # Filtro 30d
-    assert _is_within_date_range("Hace 3 semanas", "30d") is True
-    assert _is_within_date_range("3 weeks ago", "30d") is True
-    assert _is_within_date_range("Hace 1 mes", "30d") is True
-    assert _is_within_date_range("1 month ago", "30d") is True
-    assert _is_within_date_range("Hace 2 meses", "30d") is False
-    assert _is_within_date_range("hace 1 año", "30d") is False
-
-    # Sin límite (any)
-    assert _is_within_date_range("Hace 3 meses", "any") is True
-    assert _is_within_date_range("Hace 3 meses", None) is True
-
-    # None posted_text con filtro activo (la función devuelve True;
-    # el caller en scrape_google_jobs conserva el job, fecha desconocida no se rechaza)
-    assert _is_within_date_range(None, "24h") is True
-    assert _is_within_date_range(None, "any") is True
+def test_country_keywords_cover_all_google_editions():
+    """COUNTRY_KEYWORDS debe cubrir exactamente las 47 ediciones del actor."""
+    expected = {
+        "us", "gb", "ca", "au", "ie", "nz", "in", "sg", "za", "ae", "de", "fr",
+        "nl", "be", "ch", "at", "es", "it", "pt", "se", "no", "dk", "fi", "pl",
+        "cz", "hu", "ro", "gr", "tr", "br", "mx", "ar", "cl", "co", "jp", "kr",
+        "hk", "tw", "ph", "my", "id", "th", "vn", "il", "ng", "ke", "eg",
+    }
+    assert {code for _, code in COUNTRY_KEYWORDS} == expected
+    assert len(COUNTRY_KEYWORDS) == 47
 
 
 @pytest.mark.asyncio
-async def test_scrape_google_jobs_filters_old_dates_keeps_unknown():
-    """Validar que Google Jobs descarta trabajos viejos y conserva los sin fecha con filtro activo."""
+async def test_scrape_google_jobs_marks_unknown_date():
+    """El actor filtra la fecha; solo se marca date_posted_unknown si el item no trae edad."""
     mock_client = MagicMock()
     mock_actor = MagicMock()
-    mock_run = MagicMock()
-    mock_run.status = "SUCCEEDED"
-    mock_run.default_dataset_id = "ds789"
-    mock_actor.call = AsyncMock(return_value=mock_run)
+    mock_actor.call = AsyncMock(return_value=MagicMock(default_dataset_id="ds789", status="SUCCEEDED"))
     mock_client.actor.return_value = mock_actor
 
     mock_dataset = MagicMock()
@@ -376,34 +373,19 @@ async def test_scrape_google_jobs_filters_old_dates_keeps_unknown():
     mock_dataset_items.items = [
         {
             "title": "Trabajo Reciente",
-            "company_name": "Empresa A",
+            "company": "Empresa A",
             "location": "Remote",
-            "apply_options": [{"title": "Web", "link": "https://example.com/job1"}],
+            "applyUrl": "https://example.com/job1",
             "description": "Un trabajo de programación reciente.",
-            "detected_extensions": {"posted_at": "hace 3 horas"}
-        },
-        {
-            "title": "Trabajo Viejo",
-            "company_name": "Empresa B",
-            "location": "Remote",
-            "apply_options": [{"title": "Web", "link": "https://example.com/job2"}],
-            "description": "Un trabajo de programación viejo.",
-            "detected_extensions": {"posted_at": "Hace 2 semanas"}
+            "postedAt": "2026-10-21",
+            "ageDays": 0
         },
         {
             "title": "Trabajo Sin Fecha",
-            "company_name": "Empresa C",
+            "company": "Empresa C",
             "location": "Remote",
-            "apply_options": [{"title": "Web", "link": "https://example.com/job3"}],
+            "applyOptions": [{"source": "Web", "url": "https://example.com/job3"}],
             "description": "Un trabajo de programación sin fecha."
-        },
-        {
-            "title": "Salario Como Fecha",
-            "company_name": "Empresa D",
-            "location": "Remote",
-            "apply_options": [{"title": "Web", "link": "https://example.com/job4"}],
-            "description": "Un trabajo de programación con salario.",
-            "posted_at": "3 K por mes"
         }
     ]
     mock_dataset.list_items = AsyncMock(return_value=mock_dataset_items)
@@ -413,26 +395,50 @@ async def test_scrape_google_jobs_filters_old_dates_keeps_unknown():
         client=mock_client,
         query="Programador",
         limit=10,
-        location_type="remote",
         date_posted="24h",
         target_location="Remote",
         job_language="es"
     )
 
-    # Pasan: reciente (3 horas), sin fecha (desconocida) y salario (no es fecha).
-    # Se descarta: el viejo (2 semanas, fuera de 24h).
-    titles = [j.title for j in result]
-    assert len(result) == 3
-    assert "Trabajo Reciente" in titles
-    assert "Trabajo Sin Fecha" in titles
-    assert "Salario Como Fecha" in titles
-    assert "Trabajo Viejo" not in titles
-
-    # Solo los que no pudieron datarse deben marcar la fecha como desconocida
     by_title = {j.title: j for j in result}
+    assert set(by_title) == {"Trabajo Reciente", "Trabajo Sin Fecha"}
     assert by_title["Trabajo Reciente"].date_posted_unknown is False
     assert by_title["Trabajo Sin Fecha"].date_posted_unknown is True
-    assert by_title["Salario Como Fecha"].date_posted_unknown is True
+    # applyOptions se usa como fallback cuando falta applyUrl
+    assert by_title["Trabajo Sin Fecha"].link == "https://example.com/job3"
+
+    run_input = mock_actor.call.call_args[1]["run_input"]
+    assert run_input["postedWithin"] == "day"
+
+
+@pytest.mark.asyncio
+async def test_scrape_google_jobs_any_date_omits_posted_within():
+    """Sin filtro de fecha no se envía postedWithin ni remoteOnly."""
+    mock_client = MagicMock()
+    mock_actor = MagicMock()
+    mock_actor.call = AsyncMock(return_value=MagicMock(default_dataset_id="ds", status="SUCCEEDED"))
+    mock_client.actor.return_value = mock_actor
+
+    mock_dataset = MagicMock()
+    mock_dataset_items = MagicMock()
+    mock_dataset_items.items = []
+    mock_dataset.list_items = AsyncMock(return_value=mock_dataset_items)
+    mock_client.dataset.return_value = mock_dataset
+
+    await scrape_google_jobs(
+        client=mock_client,
+        query="Developer",
+        limit=5,
+        location_type="local",
+        date_posted="any",
+        workplace_types="presencial",
+        target_location="Spain"
+    )
+
+    run_input = mock_actor.call.call_args[1]["run_input"]
+    assert "postedWithin" not in run_input
+    assert "remoteOnly" not in run_input
+    assert run_input["locations"] == ["Spain"]
 
 
 def test_title_relevance_filter():

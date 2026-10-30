@@ -23,6 +23,7 @@ Welcome, agent! Read this document carefully before making changes to the Python
   from src.services.gemini_service import generate_content_with_fallback
   # This tries GEMINI_MODEL -> GEMINI_MODEL_FALLBACK_1 -> GEMINI_MODEL_FALLBACK_2 sequentially
   ```
+- **Transient errors**: the wrapper retries HTTP `429`/`5xx` up to 3 attempts per model with exponential backoff (`1s`, `2s`). Non-transient errors skip to the next model immediately.
 - **Gemini Free-Tier Rate Limits**: The free tier of Gemini has a limit of **15 Requests Per Minute (RPM)**. 
   - To prevent HTTP 429 errors in real integration tests, we enforce a **4-second sleep** (`time.sleep(4)`) between API requests in [test_integration_real.py](file:///c:/Dev/Lead-Generation-AI/backend/tests/test_integration_real.py). Maintain this.
 
@@ -59,11 +60,9 @@ Welcome, agent! Read this document carefully before making changes to the Python
 
 ### 6. Google Jobs Actor Constraints
 
-- Actor ID: **`johnvc/google-jobs-scraper`**
-- **`datePosted` is NOT supported** in input schema. Do **not** add it to `run_input`. The Apify actor silently ignores unknown params, causing stale results.
-- Date filtering is entirely **programmatic** using helpers in `apify_service.py`:
-  - `_extract_posted_at(item)` — reads age text from `posted_at`, `detected_extensions.posted_at`, or `extensions[]` list.
-  - `_is_within_date_range(posted_text, date_posted)` — parses bilingual (ES/EN) age strings like `"Hace 2 semanas"` / `"3 days ago"`.
-  - If `posted_text` is `None` and a date filter is active (`24h`/`7d`/`30d`), the job is **kept**: absence of a date is not proof of age, and rejecting everything the scraper can't date empties results. Only jobs with a **known** age outside the range are dropped. The `JobDetail.date_posted_unknown` flag is set so the router appends a notice to `apply_tip` telling the user the filter was applied but the posting date couldn't be determined.
-  - `_extract_posted_at` only accepts strings that look like relative dates (`_looks_like_date`). Salary noise (e.g. `"3 K por mes"`) is ignored, so it can't shadow a real `detected_extensions.posted_at`.
-- **Allowed `country` values**: `"None", "us", "ca", "uk", "de", "fr", "au", "jp", "in", "br", "mx"`. Any other value triggers a schema validation error. Map unsupported countries (e.g. Spain → `"None"`) while keeping the correct `google_domain` (e.g. `google.es`) via `_map_country_and_domain`.
+- Actor ID: **`inovaflow/google-jobs-scraper`** (overridable with `GOOGLE_ACTOR_ID`).
+- Input: `queries` (array, one per CV role), `locations` (array), `country` (two-letter Google edition), `postedWithin`, `remoteOnly`, `maxJobsPerQuery`, `language`, `maxApplyOptions`.
+- **Date filtering is native**: map `24h`/`7d`/`30d` to `postedWithin` values `day`/`week`/`month` via `GOOGLE_DATE_WITHIN`. Do **not** add `datePosted` or filter ages programmatically.
+- The actor keeps jobs without a stated age even when `postedWithin` is set. Those items get `JobDetail.date_posted_unknown = True` so the router appends a notice to `apply_tip`.
+- **Allowed `country` values**: all 47 two-letter codes from the actor enum (`us`, `gb`, `ca`, `au`, `ie`, `nz`, `in`, `sg`, `za`, `ae`, `de`, `fr`, `nl`, `be`, `ch`, `at`, `es`, `it`, `pt`, `se`, `no`, `dk`, `fi`, `pl`, `cz`, `hu`, `ro`, `gr`, `tr`, `br`, `mx`, `ar`, `cl`, `co`, `jp`, `kr`, `hk`, `tw`, `ph`, `my`, `id`, `th`, `vn`, `il`, `ng`, `ke`, `eg`). `_map_country` resolves country names, Spanish variants and common cities to a valid code and never sends `"None"`.
+- Output mapping: `title`, `company`, `location`, `description`; link priority is `applyUrl` → `applyOptions[].url` → `googleUrl`.

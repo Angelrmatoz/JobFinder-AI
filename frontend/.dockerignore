@@ -6,3 +6,10 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 .git
+Dockerfile
+.dockerignore
+docker-compose*.yml
+playwright.config.js
+playwright-report
+test-results
+*.md

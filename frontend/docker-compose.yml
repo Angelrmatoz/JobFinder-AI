@@ -1,4 +1,4 @@
-version: '3.8'
+name: jobfinder-frontend
 
 services:
   frontend:
@@ -7,5 +7,10 @@ services:
       dockerfile: Dockerfile
       target: production
     ports:
-      - "80:80"
-    restart: always
+      - "80:8080"
+    # Este stack corre solo: nginx resuelve `backend` al host, donde
+    # backend/docker-compose.yml publica el puerto 8000.
+    extra_hosts:
+      - "backend:host-gateway"
+    init: true
+    restart: unless-stopped

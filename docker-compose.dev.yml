@@ -1,4 +1,4 @@
-version: '3.8'
+name: jobfinder-ai-dev
 
 services:
   backend:
@@ -7,12 +7,19 @@ services:
       dockerfile: Dockerfile
       target: development
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./backend:/app
     env_file:
       - ./backend/.env
-    restart: always
+    init: true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   frontend:
     build:
@@ -20,10 +27,12 @@ services:
       dockerfile: Dockerfile
       target: development
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"
     volumes:
       - ./frontend:/app
       - /app/node_modules
     depends_on:
-      - backend
-    restart: always
+      backend:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped

@@ -159,7 +159,7 @@ test.describe("JobFinder AI — Chat E2E", () => {
 });
 
 test.describe("JobFinder AI — Filters Panel E2E", () => {
-  test("should toggle location scope and show manual input", async ({ page }) => {
+  test("should only offer global and CV location scopes", async ({ page }) => {
     await page.goto("/");
 
     // Filtros están en acordeón colapsado por defecto — abrir primero
@@ -171,17 +171,29 @@ test.describe("JobFinder AI — Filters Panel E2E", () => {
     const locationSelect = page.getByTestId("location-scope-select");
     await expect(locationSelect).toBeVisible();
 
-    // Switch to manual location
-    await locationSelect.selectOption("manual");
+    // Solo global y CV; la ubicación manual fue eliminada
+    const optionValues = await locationSelect.locator("option").evaluateAll((options) =>
+      options.map((option) => option.value)
+    );
+    expect(optionValues).toEqual(["global", "cv"]);
+    await expect(page.getByTestId("manual-location-input")).toHaveCount(0);
 
-    // Manual location input should appear
-    const manualInput = page.getByTestId("manual-location-input");
-    await expect(manualInput).toBeVisible();
-    await manualInput.fill("Buenos Aires");
-
-    // Presencial and Híbrido buttons should be enabled
+    // CV scope enables every modality, including "Cualquier modalidad"
+    await locationSelect.selectOption("cv");
     const presencialBtn = page.getByTestId("workplace-presencial");
+    const anyBtn = page.getByTestId("workplace-any");
     await expect(presencialBtn).toBeEnabled();
+    await expect(anyBtn).toBeEnabled();
+
+    // "Cualquier modalidad" clears the specific selection
+    await anyBtn.click();
+    await expect(anyBtn).toHaveClass(/border-violet-500/);
+    await expect(page.getByTestId("workplace-remote")).not.toHaveClass(/border-violet-500/);
+
+    // Picking a specific modality deactivates "Cualquier modalidad"
+    await page.getByTestId("workplace-remote").click();
+    await expect(page.getByTestId("workplace-remote")).toHaveClass(/border-violet-500/);
+    await expect(anyBtn).not.toHaveClass(/border-violet-500/);
   });
 
   test("should enforce mutual exclusion between Spanish and English language buttons", async ({ page }) => {

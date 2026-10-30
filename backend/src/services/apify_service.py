@@ -6,182 +6,149 @@ from apify_client import ApifyClientAsync
 from src.schemas.cv import JobDetail
 
 
-# LinkedIn publishedAt values
+# LinkedIn datePosted values (shared by valig/linkedin-jobs-scraper)
 DATE_POSTED_VALUES = {
     "24h": "r86400",
     "7d": "r604800",
     "30d": "r2592000",
 }
 
-# Actor workType values (as documented in actor input schema)
-WORKPLACE_TYPE_VALUES = {
-    "presencial": "on-site",
-    "on-site": "on-site",
-    "remoto": "remote",
-    "remote": "remote",
-    "hibrido": "hybrid",
-    "hybrid": "hybrid",
+# Google postedWithin values (inovaflow/google-jobs-scraper)
+GOOGLE_DATE_WITHIN = {
+    "24h": "day",
+    "7d": "week",
+    "30d": "month",
+}
+
+# LinkedIn f_WT workplace-type codes, passed to the actor via urlParam
+WORKPLACE_TYPE_CODES = {
+    "presencial": "1",
+    "on-site": "1",
+    "remoto": "2",
+    "remote": "2",
+    "hibrido": "3",
+    "hybrid": "3",
 }
 
 
-def _map_country_and_domain(target_location: Optional[str], job_language: Optional[str]) -> tuple[str, str]:
-    """Map target location or job language to country code and google domain."""
-    country = "us"
-    domain = "google.com"
-
-    loc_lower = (target_location or "").lower()
-
-    if any(k in loc_lower for k in ["spain", "españa", "madrid", "barcelona"]):
-        country = "None"
-        domain = "google.es"
-    elif any(k in loc_lower for k in ["mexico", "méxico"]):
-        country = "mx"
-        domain = "google.com.mx"
-    elif "colombia" in loc_lower:
-        country = "None"
-        domain = "google.com.co"
-    elif "argentina" in loc_lower:
-        country = "None"
-        domain = "google.com.ar"
-    elif "chile" in loc_lower:
-        country = "None"
-        domain = "google.cl"
-    elif any(k in loc_lower for k in ["peru", "perú"]):
-        country = "None"
-        domain = "google.com.pe"
-    elif any(k in loc_lower for k in ["uk", "united kingdom", "london"]):
-        country = "uk"
-        domain = "google.co.uk"
-    elif any(k in loc_lower for k in ["canada", "toronto"]):
-        country = "ca"
-        domain = "google.ca"
-    elif any(k in loc_lower for k in ["brazil", "brasil"]):
-        country = "br"
-        domain = "google.com.br"
-    elif any(k in loc_lower for k in ["france", "paris"]):
-        country = "fr"
-        domain = "google.fr"
-    elif any(k in loc_lower for k in ["germany", "deutschland", "berlin"]):
-        country = "de"
-        domain = "google.de"
-    elif job_language == "es":
-        country = "None"
-        domain = "google.es"
-
-    # Ensure final country code matches the strict allowed list
-    allowed_countries = {"None", "us", "ca", "uk", "de", "fr", "au", "jp", "in", "br", "mx"}
-    if country not in allowed_countries:
-        country = "None"
-
-    return country, domain
-
-
-_DATE_RE = re.compile(
-    r"\d+\s*(?:hours?|horas?|days?|días?|weeks?|semanas?|months?|mes(?:es)?|years?|años?)",
-    re.IGNORECASE,
+# All 47 Google editions supported by inovaflow/google-jobs-scraper.
+# Country names, English/Spanish variants and common cities. Order matters:
+# US before Mexico protects "New Mexico"; UK before Ireland protects
+# "Northern Ireland"; Spain before Argentina/Colombia protects ambiguous
+# city names such as "Córdoba" and "Cartagena".
+COUNTRY_KEYWORDS = (
+    (("united states", "usa", "us", "new york", "nyc", "san francisco", "los angeles",
+      "chicago", "austin", "seattle", "boston", "miami", "dallas", "houston",
+      "atlanta", "denver", "washington", "silicon valley", "indiana",
+      "indianapolis", "new mexico"), "us"),
+    (("united kingdom", "uk", "britain", "great britain", "england", "scotland",
+      "wales", "northern ireland", "london", "edinburgh", "leeds", "bristol"), "gb"),
+    (("ireland", "dublin", "cork", "galway"), "ie"),
+    (("canada", "canadá", "toronto", "vancouver", "montreal", "montréal", "ottawa",
+      "calgary", "edmonton", "quebec", "québec"), "ca"),
+    (("australia", "sydney", "melbourne", "brisbane", "perth", "adelaide",
+      "canberra"), "au"),
+    (("new zealand", "nueva zelanda", "auckland", "wellington", "christchurch"), "nz"),
+    (("spain", "españa", "madrid", "barcelona", "valencia", "seville", "sevilla",
+      "bilbao", "malaga", "málaga", "zaragoza", "murcia", "canary islands",
+      "canarias"), "es"),
+    (("mexico", "méxico", "mexico city", "ciudad de méxico", "ciudad de mexico",
+      "guadalajara", "monterrey", "puebla", "tijuana", "queretaro",
+      "querétaro"), "mx"),
+    (("colombia", "bogotá", "bogota", "medellín", "medellin", "cali", "barranquilla",
+      "cartagena", "bucaramanga"), "co"),
+    (("argentina", "buenos aires", "córdoba", "cordoba", "rosario", "mendoza",
+      "la plata", "tucumán", "tucuman"), "ar"),
+    (("chile", "santiago de chile", "valparaíso", "valparaiso", "concepción",
+      "concepcion", "antofagasta", "la serena"), "cl"),
+    (("brazil", "brasil", "são paulo", "sao paulo", "rio de janeiro", "brasília",
+      "brasilia", "belo horizonte", "curitiba", "porto alegre", "recife",
+      "fortaleza"), "br"),
+    (("france", "francia", "paris", "lyon", "marseille", "toulouse", "nice", "nantes",
+      "bordeaux", "lille"), "fr"),
+    (("germany", "deutschland", "alemania", "berlin", "munich", "münchen", "hamburg",
+      "frankfurt", "cologne", "köln", "stuttgart", "düsseldorf", "dusseldorf"), "de"),
+    (("netherlands", "países bajos", "paises bajos", "holland", "amsterdam",
+      "rotterdam", "the hague", "la haya", "utrecht", "eindhoven"), "nl"),
+    (("belgium", "bélgica", "belgica", "brussels", "bruselas", "antwerp", "ghent",
+      "bruges"), "be"),
+    (("switzerland", "suiza", "zurich", "zúrich", "geneva", "ginebra", "basel",
+      "bern", "lausanne"), "ch"),
+    (("austria", "vienna", "viena", "salzburg", "graz", "linz"), "at"),
+    (("italy", "italia", "rome", "roma", "milan", "milano", "turin", "torino",
+      "florence", "firenze", "naples", "napoli", "bologna", "venice", "venezia"), "it"),
+    (("portugal", "lisbon", "lisboa", "porto", "braga", "coimbra"), "pt"),
+    (("sweden", "suecia", "stockholm", "gothenburg", "göteborg", "malmö", "malmo"),
+     "se"),
+    (("norway", "noruega", "oslo", "bergen", "trondheim", "stavanger"), "no"),
+    (("denmark", "dinamarca", "copenhagen", "copenhague", "københavn", "aarhus",
+      "odense"), "dk"),
+    (("finland", "finlandia", "helsinki", "espoo", "tampere", "turku"), "fi"),
+    (("poland", "polonia", "warsaw", "varsovia", "krakow", "kraków", "wroclaw",
+      "wrocław", "gdansk", "gdańsk", "poznan", "poznań"), "pl"),
+    (("czech republic", "czechia", "chequia", "república checa", "republica checa",
+      "prague", "praga", "brno", "ostrava"), "cz"),
+    (("hungary", "hungría", "hungria", "budapest", "debrecen", "szeged"), "hu"),
+    (("romania", "rumanía", "rumania", "bucharest", "bucarest", "cluj",
+      "cluj-napoca", "timisoara", "timișoara", "iasi", "iași"), "ro"),
+    (("greece", "grecia", "athens", "atenas", "thessaloniki", "salonica", "patras"),
+     "gr"),
+    (("turkey", "turquía", "turquia", "istanbul", "ankara", "izmir", "antalya"), "tr"),
+    (("japan", "japón", "japon", "tokyo", "osaka", "kyoto", "yokohama", "nagoya",
+      "fukuoka", "sapporo"), "jp"),
+    (("south korea", "corea del sur", "seoul", "seúl", "busan", "incheon", "daegu"),
+     "kr"),
+    (("hong kong", "hongkong"), "hk"),
+    (("taiwan", "taiwán", "taipei", "kaohsiung", "taichung"), "tw"),
+    (("philippines", "filipinas", "manila", "quezon city", "cebu", "davao"), "ph"),
+    (("malaysia", "malasia", "kuala lumpur", "penang", "johor bahru"), "my"),
+    (("indonesia", "jakarta", "yakarta", "surabaya", "bandung", "bali", "denpasar"),
+     "id"),
+    (("thailand", "tailandia", "bangkok", "chiang mai", "phuket", "pattaya"), "th"),
+    (("vietnam", "viet nam", "hanoi", "hà nội", "ho chi minh", "hồ chí minh",
+      "saigon", "da nang", "haiphong"), "vn"),
+    (("israel", "tel aviv", "jerusalem", "haifa", "herzliya"), "il"),
+    (("nigeria", "lagos", "abuja", "port harcourt", "ibadan"), "ng"),
+    (("kenya", "nairobi", "mombasa", "kisumu"), "ke"),
+    (("egypt", "egipto", "cairo", "el cairo", "alexandria", "giza"), "eg"),
+    (("india", "bangalore", "bengaluru", "mumbai", "delhi", "new delhi", "hyderabad",
+      "pune", "chennai", "kolkata", "gurgaon", "noida"), "in"),
+    (("singapore", "singapur"), "sg"),
+    (("south africa", "sudáfrica", "sudafrica", "johannesburg", "cape town",
+      "durban", "pretoria"), "za"),
+    (("united arab emirates", "emiratos árabes", "emiratos arabes", "uae", "dubai",
+      "abu dhabi", "sharjah"), "ae"),
 )
 
 
-def _looks_like_date(text: str) -> bool:
-    """True if the string looks like a relative posting date, not a salary or other noise."""
-    lowered = text.lower()
-    if "ago" in lowered or "hace" in lowered:
-        return True
-    return _DATE_RE.search(lowered) is not None
+def _map_country(target_location: Optional[str], job_language: Optional[str]) -> str:
+    """Map target location or job language to the actor's two-letter Google edition."""
+    loc_lower = (target_location or "").lower()
+
+    for keywords, code in COUNTRY_KEYWORDS:
+        if any(re.search(rf"\b{re.escape(keyword)}\b", loc_lower) for keyword in keywords):
+            return code
+
+    if job_language == "es":
+        return "es"
+
+    return "us"
 
 
-def _extract_posted_at(item: dict) -> Optional[str]:
-    """Extract age string from item fields. Ignores non-date noise (e.g. salary strings)."""
-    for source in (
-        item.get("posted_at"),
-        (item.get("detected_extensions") or {}).get("posted_at"),
-    ):
-        if isinstance(source, str) and _looks_like_date(source):
-            return source
-
-    extensions = item.get("extensions") or []
-    if isinstance(extensions, list):
-        for ext in extensions:
-            if isinstance(ext, str) and _looks_like_date(ext):
-                return ext
-    return None
-
-
-def _is_within_date_range(posted_text: Optional[str], date_posted: Optional[str]) -> bool:
-    """Check if the job age string is within the requested limit (24h, 7d, 30d)."""
-    if not date_posted or date_posted == "any":
-        return True
-    if not posted_text:
-        return True
-
-    text = posted_text.lower()
-
-    if date_posted == "24h":
-        if any(w in text for w in ["week", "semana", "month", "mes", "year", "año"]):
-            return False
-        day_match = re.search(r'(\d+)\s*(?:day|día)', text)
-        if day_match:
-            days = int(day_match.group(1))
-            return days <= 1
-        return True
-
-    if date_posted == "7d":
-        if any(w in text for w in ["month", "mes", "year", "año"]):
-            return False
-        week_match = re.search(r'(\d+)\s*(?:week|semana)', text)
-        if week_match:
-            weeks = int(week_match.group(1))
-            return weeks <= 1
-        day_match = re.search(r'(\d+)\s*(?:day|día)', text)
-        if day_match:
-            days = int(day_match.group(1))
-            return days <= 7
-        return True
-
-    if date_posted == "30d":
-        if any(w in text for w in ["year", "año"]):
-            return False
-        month_match = re.search(r'(\d+)\s*(?:month|mes)', text)
-        if month_match:
-            months = int(month_match.group(1))
-            return months <= 1
-        week_match = re.search(r'(\d+)\s*(?:week|semana)', text)
-        if week_match:
-            weeks = int(week_match.group(1))
-            return weeks <= 4
-        day_match = re.search(r'(\d+)\s*(?:day|día)', text)
-        if day_match:
-            days = int(day_match.group(1))
-            return days <= 30
-        return True
-
-    return True
-
-
-def _build_resume_keywords(skills: Optional[List[str]]) -> List[dict]:
-    """Convert CV skills into Actor resumeKeywords input."""
-    seen = set()
-    keywords = []
-    for skill in skills or []:
-        normalized = skill.strip()
-        key = normalized.casefold()
-        if normalized and key not in seen:
-            seen.add(key)
-            keywords.append({"keyword": normalized})
-    return keywords
-
-
-def _build_work_types(location_type: Optional[str], workplace_types: Optional[str]) -> List[str]:
-    """Map frontend labels to Actor workType array values."""
+def _build_workplace_params(location_type: Optional[str], workplace_types: Optional[str]) -> List[dict]:
+    """Map frontend labels to the LinkedIn f_WT url parameter (1=on-site, 2=remote, 3=hybrid)."""
     if location_type == "remote":
-        return ["remote"]
+        codes = ["2"]
+    else:
+        codes = []
+        for value in (workplace_types or "").split(","):
+            code = WORKPLACE_TYPE_CODES.get(value.strip().lower())
+            if code and code not in codes:
+                codes.append(code)
 
-    values = []
-    for value in (workplace_types or "").split(","):
-        work_type = WORKPLACE_TYPE_VALUES.get(value.strip().lower())
-        if work_type and work_type not in values:
-            values.append(work_type)
-    return values
+    if not codes:
+        return []
+    return [{"key": "f_WT", "value": ",".join(codes)}]
 
 
 ROLE_TRANSLATIONS_TO_ES = {
@@ -272,6 +239,56 @@ def _ts_relevant_title(title: str, tokens: set) -> bool:
     return bool(tokens & title_tokens)
 
 
+async def _fetch_linkedin_role(
+    client: ApifyClientAsync,
+    actor_id: str,
+    role: str,
+    limit: int,
+    location: Optional[str],
+    date_value: Optional[str],
+    workplace_params: List[dict],
+) -> List[dict]:
+    """Run valig/linkedin-jobs-scraper for a single search role."""
+    run_input = {
+        "keywords": role,
+        "limit": limit,
+    }
+    if location:
+        run_input["location"] = location
+    if date_value:
+        run_input["datePosted"] = date_value
+    if workplace_params:
+        run_input["urlParam"] = workplace_params
+
+    print(f"[APIFY_SERVICE] Calling Apify actor '{actor_id}' with run_input: {run_input}", flush=True)
+    run = await client.actor(actor_id).call(run_input=run_input)
+    print(f"[APIFY_SERVICE] Actor completed. Status: {run.status}. Dataset ID: {run.default_dataset_id}", flush=True)
+    dataset = await client.dataset(run.default_dataset_id).list_items()
+    print(f"[APIFY_SERVICE] Retrieved {len(dataset.items)} items from dataset.", flush=True)
+    return list(dataset.items)
+
+
+def _linkedin_job_from_item(item: dict) -> Optional[JobDetail]:
+    """Map valig/linkedin-jobs-scraper output fields to JobDetail."""
+    title = item.get("title") or item.get("jobTitle") or "Posición Desconocida"
+    company = item.get("companyName") or item.get("company") or "Empresa Desconocida"
+    location = item.get("location") or "Remoto / No especificado"
+    link = item.get("url") or item.get("jobUrl") or item.get("applyUrl") or ""
+    description = item.get("description") or item.get("jobDescription") or ""
+
+    if not link:
+        return None
+
+    return JobDetail(
+        title=title,
+        company=company,
+        location=location,
+        link=link,
+        description=description[:800],
+        saved_to_notion=False,
+    )
+
+
 async def scrape_linkedin_jobs(
     client: ApifyClientAsync,
     query: str,
@@ -284,80 +301,64 @@ async def scrape_linkedin_jobs(
     target_roles: Optional[List[str]] = None,
     job_language: Optional[str] = None,
 ) -> List[JobDetail]:
-    """Scrape LinkedIn jobs using Actor native input parameters.
+    """Scrape LinkedIn jobs with valig/linkedin-jobs-scraper.
 
-    Uses keyword, locations, workType, publishedAt, resumeKeywords
-    as documented in the actor's input schema for maximum precision.
+    The actor takes a single `keywords` string, so one run is issued per CV role
+    (max 3) and the results are merged. Filters are applied post-hoc because the
+    actor has no resume-keyword scoring.
     """
-    actor_id = os.getenv("LINKEDIN_ACTOR_ID", "cheap_scraper/linkedin-job-scraper")
+    actor_id = os.getenv("LINKEDIN_ACTOR_ID", "valig/linkedin-jobs-scraper")
 
-    run_input = {
-        "keyword": _build_keywords(query, target_roles, job_language),
-        "enrichCompanyData": False,
-        "excludeRecruitingAgencies": False,
-        "filterEasyApply": False,
-        "filterUnder10Applicants": False,
-        "saveOnlyUniqueItems": True,
-        "maxItems": max(limit, 150),
-    }
+    roles = _build_keywords(query, target_roles, job_language)[:3]
+    date_value = DATE_POSTED_VALUES.get(date_posted)
+    workplace_params = _build_workplace_params(location_type, workplace_types)
+    location = (target_location or "").strip() or None
 
-    # Date posted (publishedAt) - "any" means no filter
-    published_at = DATE_POSTED_VALUES.get(date_posted)
-    if published_at:
-        run_input["publishedAt"] = published_at
-
-    # Location (must be in English for LinkedIn to resolve geoId correctly)
-    if target_location and target_location.strip():
-        run_input["locations"] = [target_location.strip()]
-    else:
-        run_input["locations"] = ["Worldwide"]
-
-    # Workplace type filter
-    work_types = _build_work_types(location_type, workplace_types)
-    if work_types:
-        run_input["workType"] = work_types
-
-    # Resume keywords for scoring
-    resume_keywords = _build_resume_keywords(resume_skills)
-    if resume_keywords:
-        run_input["resumeKeywords"] = resume_keywords
+    # Buffer per role so post-filters (title/language) still leave enough results
+    per_role_limit = min(max(limit, 25), 100)
 
     try:
-        print(f"[APIFY_SERVICE] Calling Apify actor '{actor_id}' with run_input: {run_input}", flush=True)
-        run = await client.actor(actor_id).call(run_input=run_input)
-        print(f"[APIFY_SERVICE] Actor completed. Status: {run.status}. Dataset ID: {run.default_dataset_id}", flush=True)
-        dataset = await client.dataset(run.default_dataset_id).list_items()
-        print(f"[APIFY_SERVICE] Retrieved {len(dataset.items)} items from dataset.", flush=True)
+        batches = await asyncio.gather(
+            *(
+                _fetch_linkedin_role(
+                    client, actor_id, role, per_role_limit, location, date_value, workplace_params
+                )
+                for role in roles
+            ),
+            return_exceptions=True,
+        )
 
         from src.services.gemini_service import is_spanish, is_english
 
         role_tokens = _role_tokens(target_roles)
-
+        seen_links = set()
         jobs = []
-        for item in dataset.items:
-            title = item.get("jobTitle") or item.get("title") or item.get("positionName") or "Posición Desconocida"
-            company = item.get("companyName") or item.get("company") or "Empresa Desconocida"
-            location = item.get("location") or "Remoto / No especificado"
-            link = item.get("jobUrl") or item.get("url") or ""
-            description = item.get("jobDescription") or item.get("description") or item.get("descriptionText") or ""
-            if not link:
+
+        for batch in batches:
+            if isinstance(batch, Exception):
+                print(f"LinkedIn role search failed: {str(batch)}", flush=True)
                 continue
 
-            # Data-driven relevance filter: job title must overlap CV role tokens.
-            # Drops unrelated feed jobs (e.g. stacked feed) without hardcoding a profession.
-            if not _ts_relevant_title(title, role_tokens):
-                continue
+            for item in batch:
+                job = _linkedin_job_from_item(item)
+                if not job or job.link in seen_links:
+                    continue
 
-            # Programmatically filter to match language jobs to avoid filling the limit slots with them
-            text_to_check = f"{title} {description}"
-            if job_language == "es" and not is_spanish(text_to_check):
-                continue
-            if job_language == "en" and not is_english(text_to_check):
-                continue
+                # Data-driven relevance filter: job title must overlap CV role tokens.
+                if not _ts_relevant_title(job.title, role_tokens):
+                    continue
 
-            jobs.append(JobDetail(title=title, company=company, location=location, link=link, description=description[:800], saved_to_notion=False))
-            if len(jobs) >= limit:
-                break
+                text_to_check = f"{job.title} {job.description or ''}"
+                if job_language == "es" and not is_spanish(text_to_check):
+                    continue
+                if job_language == "en" and not is_english(text_to_check):
+                    continue
+
+                seen_links.add(job.link)
+                jobs.append(job)
+                if len(jobs) >= limit:
+                    return jobs
+
         return jobs
     except Exception as e:
         print(f"Error scraping LinkedIn Jobs: {str(e)}", flush=True)
@@ -376,41 +377,34 @@ async def scrape_google_jobs(
     target_roles: Optional[List[str]] = None,
     job_language: Optional[str] = None,
 ) -> List[JobDetail]:
-    """Scrape Google jobs using johnvc/google-jobs-scraper actor.
+    """Scrape Google jobs with inovaflow/google-jobs-scraper.
 
-    Maps common advanced filters to maintain parity with LinkedIn scraper.
+    Date and remote filtering are native actor inputs; only language and
+    role-title relevance are filtered locally because the actor has no
+    equivalent for them.
     """
-    actor_id = os.getenv("GOOGLE_ACTOR_ID", "johnvc/google-jobs-scraper")
-
-    # Map country and domain
-    country, domain = _map_country_and_domain(target_location, job_language)
-
-    # Build query keywords
-    kws = _build_keywords(query, target_roles, job_language)
-    query_str = " OR ".join(f'"{kw}"' for kw in kws) if kws else query
-
-    # If location is remote, or workplace types only includes remote
-    google_location = ""
-    if location_type == "remote" or (workplace_types == "remoto" or workplace_types == "remote"):
-        google_location = "Remote"
-    elif target_location and target_location.strip():
-        google_location = target_location.strip()
+    actor_id = os.getenv("GOOGLE_ACTOR_ID", "inovaflow/google-jobs-scraper")
 
     run_input = {
-        "query": query_str,
-        "country": country,
-        "google_domain": domain,
-        "include_lrad": False,
-        "language": job_language if job_language in ["es", "en"] else "es",
-        "lrad_value": "5",
-        "max_delay": 1,
-        "max_pagination": 1,
-        "num_results": 100,
-        "output_file": "google_jobs_results.json",
+        "queries": _build_keywords(query, target_roles, job_language)[:3],
+        "country": _map_country(target_location, job_language),
+        # Buffer because title/language filters drop items after the actor runs
+        "maxJobsPerQuery": min(max(limit, 25), 100),
+        "language": job_language if job_language in ("es", "en") else "en",
+        # One resolved apply link is enough for the UI and keeps the run fast
+        "maxApplyOptions": 1,
     }
 
-    if google_location:
-        run_input["location"] = google_location
+    posted_within = GOOGLE_DATE_WITHIN.get(date_posted)
+    if posted_within:
+        run_input["postedWithin"] = posted_within
+
+    if location_type == "remote" or (workplace_types or "").strip().lower() in ("remoto", "remote"):
+        run_input["remoteOnly"] = True
+
+    location = (target_location or "").strip()
+    if location:
+        run_input["locations"] = [location]
 
     try:
         print(f"[APIFY_SERVICE] Calling Apify actor '{actor_id}' with run_input: {run_input}", flush=True)
@@ -422,24 +416,24 @@ async def scrape_google_jobs(
         from src.services.gemini_service import is_spanish, is_english
 
         role_tokens = _role_tokens(target_roles)
-
+        date_filter_active = date_posted in GOOGLE_DATE_WITHIN
         jobs = []
-        for item in dataset.items:
-            title = item.get("title") or item.get("jobTitle") or item.get("positionName") or "Posición Desconocida"
-            company = item.get("company_name") or item.get("companyName") or item.get("company") or "Empresa Desconocida"
-            location = item.get("location") or "Remoto / No especificado"
-            description = item.get("description") or item.get("jobDescription") or item.get("descriptionText") or ""
 
-            # Extract link from apply_options list or fallback to top-level link/url
-            apply_options = item.get("apply_options") or []
-            link = ""
-            if apply_options and isinstance(apply_options, list):
-                for option in apply_options:
-                    if isinstance(option, dict) and option.get("link"):
-                        link = option.get("link")
-                        break
+        for item in dataset.items:
+            title = item.get("title") or "Posición Desconocida"
+            company = item.get("company") or "Empresa Desconocida"
+            job_location = item.get("location") or "Remoto / No especificado"
+            description = item.get("description") or ""
+
+            apply_options = item.get("applyOptions") or []
+            link = item.get("applyUrl") or ""
             if not link:
-                link = item.get("link") or item.get("url") or ""
+                link = next(
+                    (opt.get("url") for opt in apply_options if isinstance(opt, dict) and opt.get("url")),
+                    "",
+                )
+            if not link:
+                link = item.get("googleUrl") or ""
 
             if not link:
                 continue
@@ -448,21 +442,6 @@ async def scrape_google_jobs(
             if not _ts_relevant_title(title, role_tokens):
                 continue
 
-            # Programmatically filter out jobs by age/date range early
-            # Google Jobs actor does NOT support datePosted natively, so we must filter here
-            posted_text = _extract_posted_at(item)
-            print(f"[APIFY_SERVICE] Google Job '{title}' posted_at='{posted_text}' (filter={date_posted})", flush=True)
-            date_posted_unknown = False
-            if date_posted and date_posted != "any":
-                if not posted_text:
-                    # Age unknown: keep the job. Absence of date != outside range,
-                    # and skipping everything the scraper can't date makes Google Jobs useless.
-                    print(f"[APIFY_SERVICE] '{title}': no posted_at data, keeping job (age unknown)", flush=True)
-                    date_posted_unknown = True
-                elif not _is_within_date_range(posted_text, date_posted):
-                    print(f"[APIFY_SERVICE] Skipping '{title}': posted_at '{posted_text}' outside {date_posted} range", flush=True)
-                    continue
-
             # Programmatically filter out wrong language jobs early
             text_to_check = f"{title} {description}"
             if job_language == "es" and not is_spanish(text_to_check):
@@ -470,14 +449,17 @@ async def scrape_google_jobs(
             if job_language == "en" and not is_english(text_to_check):
                 continue
 
+            # The actor keeps jobs without a stated age even when postedWithin is set.
+            has_date = item.get("ageDays") is not None or bool(item.get("postedAt") or item.get("postedText"))
+
             jobs.append(JobDetail(
                 title=title,
                 company=company,
-                location=location,
+                location=job_location,
                 link=link,
                 description=description[:800],
                 saved_to_notion=False,
-                date_posted_unknown=date_posted_unknown
+                date_posted_unknown=date_filter_active and not has_date,
             ))
             if len(jobs) >= limit:
                 break

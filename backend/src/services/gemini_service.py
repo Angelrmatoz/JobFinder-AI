@@ -3,8 +3,23 @@ from google.genai import types
 import os
 import json
 import re
+import time
 from typing import Any, Optional
 from src.schemas.cv import CVProfile, JobMatchResult
+
+# Two retries with exponential backoff give the API time to recover without
+# making the whole pipeline wait too long. 429/5xx are the only errors worth
+# retrying; a bad model name or invalid request must fail fast to the next model.
+GEMINI_MAX_ATTEMPTS = 3
+GEMINI_RETRY_BASE_SECONDS = 1.0
+GEMINI_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+GEMINI_RETRYABLE_MARKERS = (
+    "INTERNAL",
+    "UNAVAILABLE",
+    "RESOURCE_EXHAUSTED",
+    "DEADLINE_EXCEEDED",
+    "HIGH DEMAND",
+)
 
 # Initialize the Gemini Client. 
 # It will automatically pick up GEMINI_API_KEY from environment variables.
@@ -14,31 +29,64 @@ def get_client() -> genai.Client:
         raise ValueError("GEMINI_API_KEY environment variable is not set")
     return genai.Client(api_key=api_key)
 
+def _is_retryable_error(error: Exception) -> bool:
+    """Return True only for transient API failures (rate limit / server errors)."""
+    code = getattr(error, "code", None)
+    try:
+        if int(code) in GEMINI_RETRYABLE_STATUS_CODES:
+            return True
+    except (TypeError, ValueError):
+        pass
+
+    text = str(error).upper()
+    if re.search(r"\b(?:429|500|502|503|504)\b", text):
+        return True
+    return any(marker in text for marker in GEMINI_RETRYABLE_MARKERS)
+
+
 def generate_content_with_fallback(client: genai.Client, contents: str, config: Any) -> Any:
-    """Helper to try generating content with a chain of fallback models."""
+    """Try each configured model, retrying transient errors with backoff."""
     models = [
         os.getenv("GEMINI_MODEL", "gemma-4-31b-it"),
         os.getenv("GEMINI_MODEL_FALLBACK_1", "gemma-4-26b-a4b-it"),
-        os.getenv("GEMINI_MODEL_FALLBACK_2", "gemini-3.1-flash-lite"),
+        os.getenv("GEMINI_MODEL_FALLBACK_2", "gemini-flash-lite-latest"),
     ]
-    
+
     last_error = None
     for model_name in models:
         if not model_name:
             continue
-        try:
-            print(f"[GEMINI_SERVICE] Trying generation with model: {model_name}", flush=True)
-            response = client.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config=config
-            )
-            return response
-        except Exception as e:
-            print(f"[GEMINI_SERVICE] Warning: model {model_name} failed. Error: {str(e)}", flush=True)
-            last_error = e
-            continue
-            
+        for attempt in range(1, GEMINI_MAX_ATTEMPTS + 1):
+            try:
+                print(
+                    f"[GEMINI_SERVICE] Trying generation with model: {model_name} "
+                    f"(attempt {attempt}/{GEMINI_MAX_ATTEMPTS})",
+                    flush=True,
+                )
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=config
+                )
+                return response
+            except Exception as e:
+                last_error = e
+                retryable = _is_retryable_error(e)
+                print(
+                    f"[GEMINI_SERVICE] Warning: model {model_name} failed "
+                    f"(attempt {attempt}/{GEMINI_MAX_ATTEMPTS}). Error: {str(e)}",
+                    flush=True,
+                )
+                if not retryable:
+                    break
+                if attempt < GEMINI_MAX_ATTEMPTS:
+                    delay = GEMINI_RETRY_BASE_SECONDS * (2 ** (attempt - 1))
+                    print(
+                        f"[GEMINI_SERVICE] Retrying {model_name} in {delay:.1f}s...",
+                        flush=True,
+                    )
+                    time.sleep(delay)
+
     raise RuntimeError(f"All fallback models failed. Last error: {str(last_error)}")
 
 def is_spanish(text: str) -> bool:
@@ -63,7 +111,7 @@ def is_english(text: str) -> bool:
     matches = sum(1 for pattern in english_indicators if re.search(pattern, text_lower))
     return matches >= 2
 
-def parse_cv_with_gemma(cv_text: str, manual_location: str = None) -> CVProfile:
+def parse_cv_with_gemma(cv_text: str) -> CVProfile:
     """Parse raw CV text using Gemini structured outputs to return CVProfile."""
     client = get_client()
     
@@ -71,7 +119,6 @@ def parse_cv_with_gemma(cv_text: str, manual_location: str = None) -> CVProfile:
     Extract the professional profile from this CV text.
     Analyze the candidate's skills, experience, and target roles.
     Also extract the candidate's location (city and/or country). 
-    {f"IMPORTANT OVERRIDE: The user has manually specified their location as '{manual_location}'. USE THIS LOCATION instead of the one in the CV." if manual_location else ""}
     IMPORTANT: Always translate the final location to English (e.g. 'Dominican Republic' instead of 'República Dominicana', or 'Spain' instead of 'España'). If no location is found, set it to null.
     Also generate an optimized search query string to find jobs for this profile.
     The query should be brief and contain only target roles and core technologies. Do not add location or work-mode terms such as 'remote'; those are applied as dedicated search filters.
